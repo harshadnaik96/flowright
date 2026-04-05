@@ -1,0 +1,52 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: flowright-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: flowright
+      POSTGRES_PASSWORD: flowright
+      POSTGRES_DB: flowright
+    ports:
+      - "5432:5432"
+    volumes:
+      - flowright_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U flowright"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+    container_name: flowright-api
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://flowright:flowright@db:5432/flowright
+      PORT: 3001
+      HOST: 0.0.0.0
+      WEB_URL: http://localhost:3000
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+    ports:
+      - "3001:3001"
+
+  web:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile
+    container_name: flowright-web
+    restart: unless-stopped
+    depends_on:
+      - api
+    environment:
+      NEXT_PUBLIC_API_URL: http://api:3001
+    ports:
+      - "3000:3000"
+
+volumes:
+  flowright_pg_data:
