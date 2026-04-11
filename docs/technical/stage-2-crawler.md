@@ -1,7 +1,10 @@
 # Stage 2 — Technical Reference: Selector Registry & Crawler
 
 ## Overview
-The crawler visits your app URL using Playwright headless Chromium, authenticates using the environment's auth config, and extracts all interactive elements into a Selector Registry stored in PostgreSQL.
+The crawler visits your app and extracts all interactive elements into a Selector Registry stored in PostgreSQL. The crawler used depends on the project's `platform`:
+
+- **Web** (`platform = "web"`) — Playwright headless Chromium; produces `SelectorEntry[]` (CSS selectors)
+- **Mobile** (`platform = "android" | "ios"`) — Maestro CLI `maestro hierarchy`; produces `MobileSelectorEntry[]` (accessibility IDs, resource IDs, text)
 
 ---
 
@@ -10,12 +13,22 @@ The crawler visits your app URL using Playwright headless Chromium, authenticate
 ```
 apps/api/src/
 ├── routes/
-│   ├── projects.ts        CRUD for projects
-│   ├── environments.ts    CRUD for environments (with auth encryption)
-│   └── crawler.ts         Crawl trigger + registry retrieval
+│   ├── projects.ts           CRUD for projects
+│   ├── environments.ts       CRUD for environments (with auth encryption)
+│   └── crawler.ts            Crawl trigger + registry retrieval (platform-aware)
 ├── services/
-│   ├── crawler.ts         Playwright crawler logic
-│   └── encryption.ts      AES-256-GCM for sensitive auth fields
+│   ├── crawler.ts            Playwright web crawler logic
+│   ├── crawler-maestro.ts    Maestro mobile crawler logic
+│   └── encryption.ts         AES-256-GCM for sensitive auth fields
+```
+
+The crawler route checks `project.platform` and delegates to the correct service:
+```ts
+if (project.platform === 'web') {
+  entries = await crawlEnvironment(env);       // Playwright
+} else {
+  entries = await crawlMobileApp(env.baseUrl); // Maestro hierarchy
+}
 ```
 
 ---
@@ -125,6 +138,40 @@ Duplicates across pages are removed. Final registry is stored as `SelectorEntry[
 ## Flow Variables
 
 `phone_number` is a tester-provided variable at run time — not stored in the environment. OTP and MPIN come from the environment auth config and are injected automatically. Testers never see or type OTP/MPIN during runs.
+
+---
+
+---
+
+## Mobile Crawler (`crawler-maestro.ts`)
+
+Runs `maestro hierarchy` via child process, parses the accessibility tree output, and builds `MobileSelectorEntry[]`.
+
+```
+maestro hierarchy  →  stdout XML/JSON  →  parse  →  MobileSelectorEntry[]
+```
+
+Each `MobileSelectorEntry` captures:
+- `text` — visible text label
+- `accessibilityId` — content-desc attribute
+- `resourceId` — resource-id attribute (Android)
+- `bounds` — element bounding box
+
+### Mobile Auth Subflow Generation
+
+For mobile environments with `credentials` or `email-password` auth, a Maestro subflow YAML is auto-generated at crawl time and stored at `environments.auth_subflow_path`. Every generated mobile flow begins with a `runFlow` step that references this subflow.
+
+Example auto-generated subflow:
+```yaml
+# subflows/env-{id}-auth.yaml
+appId: "${APP_ID}"
+---
+- tapOn: "Login"
+- inputText: "${PHONE}"
+- tapOn: "Get OTP"
+- inputText: "${OTP}"
+- tapOn: "Submit"
+```
 
 ---
 

@@ -1,17 +1,25 @@
 import type { FastifyInstance } from "fastify";
 import { db } from "../db/client";
-import { flows, flowSteps, environments, selectorRegistries, testRuns } from "../db/schema";
+import { flows, flowSteps, environments, selectorRegistries, testRuns, projects } from "../db/schema";
 import { eq, desc } from "drizzle-orm";
 import {
   refineTestCase,
   generateSteps,
   regenerateStep,
 } from "../services/gemini";
+import {
+  generateMaestroSteps,
+  regenerateMaestroStep,
+} from "../services/gemini-maestro";
 import type {
   SelectorEntry,
   FlowVariable,
   RegenerateStepRequest,
 } from "@flowright/shared";
+
+function isMobile(platform: string): boolean {
+  return platform === "android" || platform === "ios";
+}
 
 export async function generatorRoutes(app: FastifyInstance) {
 
@@ -63,28 +71,34 @@ export async function generatorRoutes(app: FastifyInstance) {
     if (!projectId)
       return reply.status(400).send({ error: "projectId is required" });
 
-    // Load latest selector registry for the environment
-    const [registry] = await db
-      .select()
-      .from(selectorRegistries)
-      .where(eq(selectorRegistries.environmentId, environmentId))
-      .orderBy(desc(selectorRegistries.crawledAt))
-      .limit(1);
+    // Look up project platform to decide which generator to use
+    const [project] = await db.select().from(projects).where(eq(projects.id, projectId));
+    if (!project) return reply.status(404).send({ error: "Project not found" });
 
-    if (!registry) {
-      return reply.status(400).send({
-        error: "No selector registry found for this environment. Run a crawl first.",
-      });
+    const mobile = isMobile(project.platform);
+
+    // For web: require a crawl registry. For mobile: Maestro uses text-based matching, no registry needed.
+    let entries: SelectorEntry[] = [];
+    if (!mobile) {
+      const [registry] = await db
+        .select()
+        .from(selectorRegistries)
+        .where(eq(selectorRegistries.environmentId, environmentId))
+        .orderBy(desc(selectorRegistries.crawledAt))
+        .limit(1);
+
+      if (!registry) {
+        return reply.status(400).send({
+          error: "No selector registry found for this environment. Run a crawl first.",
+        });
+      }
+      entries = registry.entries as SelectorEntry[];
     }
 
-    const entries = registry.entries as SelectorEntry[];
-
     try {
-      const result = await generateSteps(
-        refinedTestCase.trim(),
-        entries,
-        flowName.trim()
-      );
+      const result = mobile
+        ? await generateMaestroSteps(refinedTestCase.trim(), flowName.trim())
+        : await generateSteps(refinedTestCase.trim(), entries, flowName.trim());
 
       // Save as draft flow
       const [flow] = await db
@@ -104,7 +118,7 @@ export async function generatorRoutes(app: FastifyInstance) {
           flowId: flow.id,
           order: s.order,
           plainEnglish: s.plainEnglish,
-          cypressCommand: s.cypressCommand,
+          command: s.command,
           selectorUsed: s.selectorUsed ?? null,
         }))
       );
@@ -126,32 +140,42 @@ export async function generatorRoutes(app: FastifyInstance) {
 
   app.post<{
     Params: { flowId: string };
-    Body: RegenerateStepRequest & { environmentId: string };
+    Body: RegenerateStepRequest & { environmentId: string; projectId: string };
   }>("/regenerate-step/:flowId", async (req, reply) => {
-    const { stepIndex, instruction, currentSteps, environmentId } = req.body;
+    const { stepIndex, instruction, currentSteps, environmentId, projectId } = req.body;
 
     if (stepIndex === undefined || stepIndex < 0)
       return reply.status(400).send({ error: "stepIndex is required" });
     if (!instruction?.trim())
       return reply.status(400).send({ error: "instruction is required" });
 
-    const [registry] = await db
-      .select()
-      .from(selectorRegistries)
-      .where(eq(selectorRegistries.environmentId, environmentId))
-      .orderBy(desc(selectorRegistries.crawledAt))
-      .limit(1);
-
-    const entries = (registry?.entries as SelectorEntry[]) ?? [];
+    const [project] = await db.select().from(projects).where(eq(projects.id, projectId));
+    const mobile = project ? isMobile(project.platform) : false;
 
     try {
+      if (mobile) {
+        const fixed = await regenerateMaestroStep(
+          stepIndex,
+          instruction.trim(),
+          currentSteps as Parameters<typeof regenerateMaestroStep>[2],
+        );
+        return { step: fixed };
+      }
+
+      const [registry] = await db
+        .select()
+        .from(selectorRegistries)
+        .where(eq(selectorRegistries.environmentId, environmentId))
+        .orderBy(desc(selectorRegistries.crawledAt))
+        .limit(1);
+
+      const entries = (registry?.entries as SelectorEntry[]) ?? [];
       const fixed = await regenerateStep(
         stepIndex,
         instruction.trim(),
         currentSteps as Parameters<typeof regenerateStep>[2],
         entries
       );
-
       return { step: fixed };
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Step regeneration failed";
@@ -170,7 +194,7 @@ export async function generatorRoutes(app: FastifyInstance) {
       steps: Array<{
         order: number;
         plainEnglish: string;
-        cypressCommand: string;
+        command: string;
         selectorUsed?: string | null;
       }>;
       variables: FlowVariable[];
@@ -187,7 +211,7 @@ export async function generatorRoutes(app: FastifyInstance) {
         flowId,
         order: s.order,
         plainEnglish: s.plainEnglish,
-        cypressCommand: s.cypressCommand,
+        command: s.command,
         selectorUsed: s.selectorUsed ?? null,
       }))
     );
@@ -227,23 +251,30 @@ export async function generatorRoutes(app: FastifyInstance) {
     const [flow] = await db.select().from(flows).where(eq(flows.id, flowId));
     if (!flow) return reply.status(404).send({ error: "Flow not found" });
 
-    const [registry] = await db
-      .select()
-      .from(selectorRegistries)
-      .where(eq(selectorRegistries.environmentId, environmentId))
-      .orderBy(desc(selectorRegistries.crawledAt))
-      .limit(1);
+    const [project] = await db.select().from(projects).where(eq(projects.id, flow.projectId));
+    const mobile = project ? isMobile(project.platform) : false;
 
-    if (!registry) {
-      return reply.status(400).send({
-        error: "No selector registry found for this environment. Run a crawl first.",
-      });
+    let entries: SelectorEntry[] = [];
+    if (!mobile) {
+      const [registry] = await db
+        .select()
+        .from(selectorRegistries)
+        .where(eq(selectorRegistries.environmentId, environmentId))
+        .orderBy(desc(selectorRegistries.crawledAt))
+        .limit(1);
+
+      if (!registry) {
+        return reply.status(400).send({
+          error: "No selector registry found for this environment. Run a crawl first.",
+        });
+      }
+      entries = registry.entries as SelectorEntry[];
     }
 
-    const entries = registry.entries as SelectorEntry[];
-
     try {
-      const result = await generateSteps(refinedTestCase.trim(), entries, flowName.trim());
+      const result = mobile
+        ? await generateMaestroSteps(refinedTestCase.trim(), flowName.trim())
+        : await generateSteps(refinedTestCase.trim(), entries, flowName.trim());
 
       // Clear run history (cascades to stepResults) so the flowSteps FK is safe to drop
       await db.delete(testRuns).where(eq(testRuns.flowId, flowId));
@@ -263,7 +294,7 @@ export async function generatorRoutes(app: FastifyInstance) {
           flowId,
           order: s.order,
           plainEnglish: s.plainEnglish,
-          cypressCommand: s.cypressCommand,
+          command: s.command,
           selectorUsed: s.selectorUsed ?? null,
         }))
       );

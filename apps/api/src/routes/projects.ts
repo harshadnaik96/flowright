@@ -23,7 +23,7 @@ export async function projectRoutes(app: FastifyInstance) {
 
   // Create project
   app.post<{ Body: CreateProjectRequest }>("/", async (req, reply) => {
-    const { name, description } = req.body;
+    const { name, description, platform } = req.body;
 
     if (!name?.trim()) {
       return reply.status(400).send({ error: "name is required" });
@@ -31,7 +31,7 @@ export async function projectRoutes(app: FastifyInstance) {
 
     const [created] = await db
       .insert(projects)
-      .values({ name: name.trim(), description })
+      .values({ name: name.trim(), description, ...(platform && { platform }) })
       .returning();
 
     return reply.status(201).send(created);

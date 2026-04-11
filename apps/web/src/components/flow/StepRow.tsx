@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input"
 export interface Step {
   order: number
   plainEnglish: string
-  cypressCommand: string
+  command: string
   selectorUsed: string | null
 }
 
@@ -47,7 +47,7 @@ export function StepRow({
           <p className="text-sm">{step.plainEnglish}</p>
           {showCode && (
             <pre className="mt-1.5 rounded bg-muted px-2 py-1.5 text-xs font-mono overflow-x-auto text-muted-foreground">
-              {step.cypressCommand}
+              {step.command}
             </pre>
           )}
         </div>

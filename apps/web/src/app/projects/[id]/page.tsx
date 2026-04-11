@@ -1,15 +1,13 @@
 import Link from "next/link"
 import { notFound } from "next/navigation"
-import { Plus, Play, FileText, RefreshCw, Cpu, Activity, Globe, ShieldCheck, Clock } from "lucide-react"
+import { Plus, RefreshCw, Cpu, Activity, Globe, Smartphone, ShieldCheck } from "lucide-react"
 import { AppShell } from "@/components/layout/AppShell"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent } from "@/components/ui/card"
-import { Separator } from "@/components/ui/separator"
 import { api } from "@/lib/api"
-import type { Flow } from "@flowright/shared"
-import { RunFlowButton } from "./RunFlowButton"
-import { cn } from "@/lib/utils"
+import { DeleteStationButton } from "./DeleteStationButton"
+import { FlowsSection } from "./FlowsSection"
 
 async function getData(id: string) {
   try {
@@ -22,20 +20,6 @@ async function getData(id: string) {
   } catch {
     return null
   }
-}
-
-function FlowStatusBadge({ status }: { status: Flow["status"] }) {
-  const map = {
-    approved: { label: "Approved", className: "bg-emerald-500/10 text-emerald-600 border-emerald-500/20" },
-    draft: { label: "Draft", className: "bg-amber-500/10 text-amber-600 border-amber-500/20" },
-    archived: { label: "Archived", className: "bg-slate-500/10 text-slate-600 border-slate-500/20" },
-  }
-  const { label, className } = map[status]
-  return (
-    <Badge variant="outline" className={cn("px-2 py-0.5 font-semibold text-[10px] uppercase tracking-wider", className)}>
-      {label}
-    </Badge>
-  )
 }
 
 export default async function ProjectPage({
@@ -114,12 +98,19 @@ export default async function ProjectPage({
                       <div className="space-y-1">
                         <h3 className="font-bold text-slate-900 group-hover:text-indigo-600 transition-colors uppercase tracking-tight text-sm">{env.name}</h3>
                         <div className="flex items-center gap-1.5 text-xs text-slate-400 font-medium font-mono">
-                          <Globe className="h-3 w-3" />
-                          <span className="truncate max-w-[140px]">{new URL(env.baseUrl).hostname}</span>
+                          {project.platform === "web" ? <Globe className="h-3 w-3" /> : <Smartphone className="h-3 w-3" />}
+                          <span className="truncate max-w-[140px]">
+                            {project.platform === "web"
+                              ? (() => { try { return new URL(env.baseUrl).hostname } catch { return env.baseUrl } })()
+                              : env.baseUrl}
+                          </span>
                         </div>
                       </div>
-                      <div className="bg-indigo-50 text-indigo-600 p-2 rounded-xl group-hover:bg-indigo-500 group-hover:text-white transition-all duration-300">
-                        <ShieldCheck className="h-4 w-4" />
+                              <div className="flex items-center gap-1">
+                        <DeleteStationButton projectId={id} envId={env.id} envName={env.name} />
+                        <div className="bg-indigo-50 text-indigo-600 p-2 rounded-xl group-hover:bg-indigo-500 group-hover:text-white transition-all duration-300">
+                          <ShieldCheck className="h-4 w-4" />
+                        </div>
                       </div>
                     </div>
                     
@@ -129,11 +120,13 @@ export default async function ProjectPage({
                           {env.auth?.type ?? "no-auth"}
                         </Badge>
                       </div>
-                      <Link href={`/projects/${id}/environments/${env.id}/crawl`}>
-                        <Button variant="outline" size="sm" className="h-8 rounded-lg font-bold border-indigo-100 text-indigo-600 hover:bg-indigo-50 hover:border-indigo-200">
-                          <RefreshCw className="mr-1.5 h-3.5 w-3.5" /> Crawl
-                        </Button>
-                      </Link>
+                      {project.platform === "web" && (
+                        <Link href={`/projects/${id}/environments/${env.id}/crawl`}>
+                          <Button variant="outline" size="sm" className="h-8 rounded-lg font-bold border-indigo-100 text-indigo-600 hover:bg-indigo-50 hover:border-indigo-200">
+                            <RefreshCw className="mr-1.5 h-3.5 w-3.5" /> Crawl
+                          </Button>
+                        </Link>
+                      )}
                     </div>
                   </CardContent>
                 </Card>
@@ -143,60 +136,7 @@ export default async function ProjectPage({
         </section>
 
         {/* Flows List Section */}
-        <section className="space-y-6 pb-20">
-          <div className="flex items-center justify-between border-b border-slate-100 pb-4">
-            <div className="flex items-center gap-2.5">
-              <Activity className="h-5 w-5 text-indigo-500" />
-              <h2 className="text-lg font-bold tracking-tight">Cypress Pipeline ({flows.length})</h2>
-            </div>
-          </div>
-
-          {flows.length === 0 ? (
-            <Card className="border-dashed border-2 bg-slate-50/50">
-              <CardContent className="py-16 text-center">
-                <FileText className="h-10 w-10 text-slate-300 mx-auto mb-4" />
-                <p className="text-slate-500 font-medium">Your flow registry is empty.</p>
-                <Link href={`/projects/${id}/flows/new`}>
-                  <Button className="mt-4 bg-indigo-500 font-bold hover:bg-indigo-600">Generate First Flow</Button>
-                </Link>
-              </CardContent>
-            </Card>
-          ) : (
-            <div className="space-y-3">
-              {flows.map((flow) => (
-                <div key={flow.id} className="group relative flex items-center justify-between p-4 rounded-2xl border border-border/60 bg-white hover:bg-slate-50/50 hover:border-indigo-500/20 hover:shadow-lg hover:shadow-slate-200/50 transition-all duration-200">
-                  <Link href={`/projects/${id}/flows/${flow.id}`} className="flex-1 flex items-center gap-4 min-w-0">
-                    <div className="h-10 w-10 shrink-0 flex items-center justify-center rounded-xl bg-slate-50 text-slate-400 group-hover:bg-indigo-50 group-hover:text-indigo-500 transition-colors">
-                      <FileText className="h-5 w-5" />
-                    </div>
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="font-bold text-slate-900 group-hover:text-indigo-600 transition-colors truncate">{flow.name}</span>
-                        <FlowStatusBadge status={flow.status} />
-                      </div>
-                      {flow.description && (
-                        <p className="text-xs text-slate-400 line-clamp-1 mt-0.5">{flow.description}</p>
-                      )}
-                    </div>
-                  </Link>
-                  
-                  <div className="flex items-center gap-6 pl-4">
-                    <div className="hidden sm:flex flex-col items-end text-right">
-                      <div className="flex items-center gap-1.5 text-[10px] font-bold text-slate-300 uppercase tracking-wider">
-                         <Clock size={10} />
-                         <span>Modified</span>
-                      </div>
-                      <span className="text-[11px] font-medium text-slate-500">Recently</span>
-                    </div>
-                    {flow.status === "approved" && (
-                      <RunFlowButton projectId={id} flowId={flow.id} />
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
+        <FlowsSection flows={flows} projectId={id} />
       </div>
     </AppShell>
   )

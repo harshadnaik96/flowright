@@ -108,6 +108,41 @@ After approve, redirects to the flow detail page. The `flowId` is unchanged.
 
 ---
 
+---
+
+## Mobile Frontend Adaptations
+
+### Project Creation (`/projects/new`)
+
+A platform picker is shown before the project name form:
+```
+[ Web ]  [ Android ]  [ iOS ]
+```
+The selected platform is passed in `CreateProjectRequest` and stored on `projects.platform`.
+
+### Environment Form (`/projects/[id]/environments/new`)
+
+The environment form is platform-aware. The page is a server component that fetches the project to get `platform`, then renders the `NewEnvironmentForm` client component with `platform` as a prop.
+
+| Field | Web | Mobile |
+|-------|-----|--------|
+| Label | "Base URL" | "App ID" |
+| Placeholder | `https://app.example.com` | `com.example.app` |
+| Hint | — | Device/emulator setup note |
+| Auth types | none, credentials, email-password, SSO, custom-script | none, credentials, email-password |
+| Seed URLs | Shown | Hidden |
+
+### Bulk Editor (`/projects/[id]/flows/[flowId]/bulk-edit`)
+
+The server page fetches `project` alongside `flow` and passes `platform` to `BulkEditorShell`. The shell passes `language` to `MonacoEditorPane`:
+```tsx
+language={platform === "web" ? "javascript" : "yaml"}
+```
+
+Web flows use JavaScript syntax highlighting. Mobile flows use YAML syntax highlighting (Maestro commands are YAML).
+
+---
+
 ## New API Endpoints (flows.ts)
 
 | Method | Path | Description |

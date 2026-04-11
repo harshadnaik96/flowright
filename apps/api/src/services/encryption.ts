@@ -52,7 +52,7 @@ const SENSITIVE_FIELDS: (keyof EnvironmentAuth)[] = [
   "phoneNumber",
   "otp",
   "mpin",
-  "username",
+  "email",
   "password",
   "storageState",
   "loginScript",

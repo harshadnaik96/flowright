@@ -10,7 +10,7 @@ export function buildEditorDocument(steps: FlowStep[]): string {
   return sorted
     .map((step) => {
       const header = buildHeader(step.order, step.plainEnglish);
-      return `${header}\n${step.cypressCommand}`;
+      return `${header}\n${step.command}`;
     })
     .join("\n\n");
 }
@@ -24,7 +24,7 @@ function buildHeader(order: number, plainEnglish: string): string {
 export type ParsedStep = {
   id: string;
   order: number;
-  cypressCommand: string;
+  command: string;
 };
 
 export type ParseResult = {
@@ -80,9 +80,9 @@ export function parseEditorDocument(
       bodyLines.pop();
     }
 
-    const cypressCommand = bodyLines.join("\n").trim();
+    const command = bodyLines.join("\n").trim();
 
-    if (!cypressCommand) {
+    if (!command) {
       errors.push(
         `Step ${block.order} ("${original.plainEnglish}") has no commands. ` +
           `Add at least one Cypress command or revert your changes.`
@@ -90,7 +90,7 @@ export function parseEditorDocument(
       continue;
     }
 
-    parsed.push({ id: original.id, order: block.order, cypressCommand });
+    parsed.push({ id: original.id, order: block.order, command });
   }
 
   return { parsed, errors };

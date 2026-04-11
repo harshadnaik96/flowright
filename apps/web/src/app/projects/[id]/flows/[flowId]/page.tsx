@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation"
 import Link from "next/link"
-import { ArrowLeft, Play } from "lucide-react"
+import { ArrowLeft, Play, RotateCcw, CheckCircle2, XCircle, Clock, AlertTriangle } from "lucide-react"
 import { AppShell } from "@/components/layout/AppShell"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -8,14 +8,27 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
 import { api } from "@/lib/api"
 import { FlowActions } from "./FlowActions"
+import type { TestRun, Environment } from "@flowright/shared"
 
 async function getData(projectId: string, flowId: string) {
   try {
-    const flow = await api.flows.get(flowId)
-    return { flow }
+    const [flow, runs, environments] = await Promise.all([
+      api.flows.get(flowId),
+      api.runner.list(flowId).catch(() => [] as TestRun[]),
+      api.environments.list(projectId).catch(() => [] as Environment[]),
+    ])
+    return { flow, runs, environments }
   } catch {
     return null
   }
+}
+
+function RunStatusIcon({ status }: { status: TestRun["status"] }) {
+  if (status === "passed")  return <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />
+  if (status === "failed")  return <XCircle className="h-4 w-4 text-destructive shrink-0" />
+  if (status === "error")   return <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0" />
+  if (status === "running") return <Clock className="h-4 w-4 text-primary shrink-0 animate-pulse" />
+  return <Clock className="h-4 w-4 text-muted-foreground/40 shrink-0" />
 }
 
 export default async function FlowDetailPage({
@@ -27,7 +40,7 @@ export default async function FlowDetailPage({
   const data = await getData(projectId, flowId)
   if (!data) notFound()
 
-  const { flow } = data
+  const { flow, runs, environments } = data
 
   return (
     <AppShell>
@@ -78,7 +91,7 @@ export default async function FlowDetailPage({
                 <div className="flex-1 min-w-0">
                   <p className="text-sm">{step.plainEnglish}</p>
                   <pre className="mt-1.5 rounded bg-muted px-2 py-1.5 text-xs font-mono overflow-x-auto text-muted-foreground">
-                    {step.cypressCommand}
+                    {step.command}
                   </pre>
                 </div>
               </div>
@@ -123,6 +136,56 @@ export default async function FlowDetailPage({
                 </Link>
               </CardContent>
             </Card>
+          </>
+        )}
+
+        {/* Run History */}
+        {runs.length > 0 && (
+          <>
+            <Separator />
+            <div>
+              <p className="text-sm font-medium mb-3">Run History</p>
+              <div className="space-y-2">
+                {runs.slice(0, 8).map((run) => {
+                  const envName = environments.find((e) => e.id === run.environmentId)?.name ?? "Unknown env"
+                  const vars = run.runtimeVariables as Record<string, string>
+                  const rerunParams = new URLSearchParams({ envId: run.environmentId })
+                  if (Object.keys(vars).length > 0) {
+                    rerunParams.set("vars", Buffer.from(JSON.stringify(vars)).toString("base64"))
+                  }
+                  return (
+                    <div key={run.id} className="flex items-center gap-3 rounded-lg border bg-card px-3 py-2.5">
+                      <RunStatusIcon status={run.status} />
+                      <div className="flex-1 min-w-0">
+                        <span className="text-xs font-medium text-muted-foreground truncate">{envName}</span>
+                        <p className="text-xs text-muted-foreground/60">
+                          {new Date(run.startedAt).toLocaleString()}
+                        </p>
+                      </div>
+                      <Badge
+                        variant="outline"
+                        className={
+                          run.status === "passed"
+                            ? "border-green-500/30 text-green-600 bg-green-500/5 text-[10px]"
+                            : run.status === "failed" || run.status === "error"
+                            ? "border-destructive/30 text-destructive bg-destructive/5 text-[10px]"
+                            : "text-[10px]"
+                        }
+                      >
+                        {run.status}
+                      </Badge>
+                      {flow.status === "approved" && (
+                        <Link href={`/projects/${projectId}/flows/${flowId}/run?${rerunParams}`}>
+                          <Button variant="ghost" size="sm" className="h-7 text-xs gap-1 text-primary">
+                            <RotateCcw className="h-3 w-3" /> Re-run
+                          </Button>
+                        </Link>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
           </>
         )}
       </div>

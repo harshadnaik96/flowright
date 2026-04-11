@@ -8,11 +8,13 @@ import { api } from "@/lib/api"
 
 async function getData(projectId: string, flowId: string) {
   try {
-    const [flow, environments] = await Promise.all([
+    const [flow, environments, project, agents] = await Promise.all([
       api.flows.get(flowId),
       api.environments.list(projectId),
+      api.projects.get(projectId),
+      api.runner.agents().catch(() => []),
     ])
-    return { flow, environments }
+    return { flow, environments, project, agents }
   } catch {
     return null
   }
@@ -20,14 +22,26 @@ async function getData(projectId: string, flowId: string) {
 
 export default async function RunPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string; flowId: string }>
+  searchParams: Promise<{ envId?: string; vars?: string }>
 }) {
   const { id: projectId, flowId } = await params
+  const { envId: preEnvId, vars: encodedVars } = await searchParams
   const data = await getData(projectId, flowId)
   if (!data) notFound()
 
-  const { flow, environments } = data
+  const { flow, environments, project, agents } = data
+  const isMobile = project.platform === "android" || project.platform === "ios"
+
+  // Decode pre-filled vars from re-run link (base64 JSON)
+  let initialVarValues: Record<string, string> | undefined
+  if (encodedVars) {
+    try {
+      initialVarValues = JSON.parse(Buffer.from(encodedVars, "base64").toString())
+    } catch { /* ignore malformed params */ }
+  }
 
   if (flow.status !== "approved") {
     return (
@@ -66,6 +80,7 @@ export default async function RunPage({
           flowName={flow.name}
           variables={flow.variables ?? []}
           totalSteps={flow.steps?.length ?? 0}
+          isMobile={isMobile}
           environments={environments.map((e) => ({
             id: e.id,
             name: e.name,
@@ -75,8 +90,11 @@ export default async function RunPage({
             id: s.id,
             order: s.order,
             plainEnglish: s.plainEnglish,
-            cypressCommand: s.cypressCommand,
+            command: s.command,
           }))}
+          agents={isMobile ? agents : undefined}
+          initialEnvId={preEnvId}
+          initialVarValues={initialVarValues}
         />
       </div>
     </AppShell>

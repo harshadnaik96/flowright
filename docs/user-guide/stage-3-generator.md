@@ -71,10 +71,11 @@ Login with merchant number and submit KYC documents, check status
 
 Once you're happy with the refined test case, click **Generate Steps**.
 
-Flowright uses the refined text and your app's element map (from the last crawl) to generate executable Cypress steps.
+Flowright uses the refined text and your app's element map (from the last crawl) to generate executable steps.
 
 You'll see two columns side by side:
 
+**Web:**
 ```
 Plain English                        │ Cypress Code (toggle to view)
 ─────────────────────────────────────┼──────────────────────────────
@@ -85,7 +86,18 @@ Enter OTP                            │ cy.get('#otp-input').type(Cypress.env('
 ...
 ```
 
-You only need to review the **Plain English** column. The Cypress code runs automatically — you don't need to understand it.
+**Mobile:**
+```
+Plain English                        │ Maestro YAML (toggle to view)
+─────────────────────────────────────┼──────────────────────────────
+Tap the Login button                 │ - tapOn: "Login"
+Enter the phone number               │ - inputText: "${PHONE}"
+Tap Send OTP                         │ - tapOn: "Send OTP"
+Verify dashboard is visible          │ - assertVisible: "Dashboard"
+...
+```
+
+You only need to review the **Plain English** column. The automation code runs automatically — you don't need to understand it.
 
 ---
 
@@ -117,6 +129,23 @@ When all steps look correct, click **Approve Flow**. This:
 When you write a test that involves logging in, Flowright automatically detects that a phone number is needed. Before running the flow, you'll be asked to enter the phone number you want to test with.
 
 **OTP and MPIN are handled automatically** — you never need to enter them. They come from the environment configuration set up by your admin.
+
+This applies to both web and mobile flows.
+
+---
+
+## Tips for Mobile Test Cases
+
+Mobile test cases use the same plain-English style. A few things to keep in mind:
+
+| Do | Avoid |
+|----|-------|
+| "Tap the Login button" | "Click Login" (say "tap" for mobile) |
+| "Verify that the Dashboard screen is visible" | "Check it loads" |
+| "Swipe up to scroll" | "Scroll down" (be explicit about gesture direction) |
+| "Enter the phone number in the phone field" | "Type the number" |
+
+Flowright generates Maestro YAML steps from your plain English — the more specific the description, the more accurate the generated step.
 
 ---
 

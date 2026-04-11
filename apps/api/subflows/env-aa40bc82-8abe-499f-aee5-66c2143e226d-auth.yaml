@@ -1,0 +1,15 @@
+# Auto-generated auth subflow — review tap targets for your app
+appId: "com.corpusvision.bakbak.dev"
+---
+- tapOn:
+    text: "Phone"
+- clearText
+- inputText: "${PHONE}"
+- tapOn:
+    text: "Get OTP"
+- tapOn:
+    text: "OTP"
+- clearText
+- inputText: "${OTP}"
+- tapOn:
+    text: "Submit"

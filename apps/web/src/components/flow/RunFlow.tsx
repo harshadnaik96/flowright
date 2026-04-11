@@ -12,6 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { api } from "@/lib/api";
+import { AgentStatusBanner } from "@/components/flow/AgentStatusBanner";
 import type { FlowVariable, WsEvent } from "@flowright/shared";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -20,7 +21,7 @@ type StepLiveState = {
   id: string;
   order: number;
   plainEnglish: string;
-  cypressCommand: string;
+  command: string;
   status: "pending" | "running" | "passed" | "failed" | "skipped";
   screenshotPath?: string;
   errorMessage?: string;
@@ -34,8 +35,12 @@ type RunFlowProps = {
   flowName: string;
   variables: FlowVariable[];
   totalSteps: number;
+  isMobile?: boolean;
   environments: Array<{ id: string; name: string; baseUrl: string }>;
-  stepSummaries: Array<{ id: string; order: number; plainEnglish: string; cypressCommand: string }>;
+  stepSummaries: Array<{ id: string; order: number; plainEnglish: string; command: string }>;
+  agents?: Array<{ tokenId: string; name: string }>;
+  initialEnvId?: string;
+  initialVarValues?: Record<string, string>;
 };
 
 type PageState = "setup" | "starting" | "running" | "done";
@@ -139,22 +144,22 @@ function AccordionStepRow({
 }) {
   const [imgExpanded, setImgExpanded]   = useState(false);
   const [editing, setEditing]           = useState(false);
-  const [draftCommand, setDraftCommand] = useState(step.cypressCommand);
+  const [draftCommand, setDraftCommand] = useState(step.command);
   const [saving, setSaving]             = useState(false);
   const [saveError, setSaveError]       = useState<string | null>(null);
 
   // Sync draft if command is patched externally
-  useEffect(() => { setDraftCommand(step.cypressCommand); }, [step.cypressCommand]);
+  useEffect(() => { setDraftCommand(step.command); }, [step.command]);
 
   const handleSave = async () => {
-    if (!draftCommand.trim() || draftCommand === step.cypressCommand) {
+    if (!draftCommand.trim() || draftCommand === step.command) {
       setEditing(false);
       return;
     }
     setSaving(true);
     setSaveError(null);
     try {
-      await api.flows.updateStep(flowId, step.id, { cypressCommand: draftCommand.trim() });
+      await api.flows.updateStep(flowId, step.id, { command: draftCommand.trim() });
       onCommandSaved(step.id, draftCommand.trim());
       setEditing(false);
     } catch (err) {
@@ -231,7 +236,7 @@ function AccordionStepRow({
 
           {/* Running → animated terminal */}
           {step.status === "running" && (
-            <LiveTerminal command={step.cypressCommand} />
+            <LiveTerminal command={step.command} />
           )}
 
           {/* Passed → show the command that ran */}
@@ -244,7 +249,7 @@ function AccordionStepRow({
               <div className="p-3 flex gap-2">
                 <span className="text-green-400 shrink-0">$</span>
                 <code className="text-green-300/80 break-all whitespace-pre-wrap leading-relaxed">
-                  {step.cypressCommand}
+                  {step.command}
                 </code>
               </div>
             </div>
@@ -271,7 +276,7 @@ function AccordionStepRow({
                   <div className="flex gap-2">
                     <span className="text-red-400 shrink-0">$</span>
                     <code className="text-red-300/80 break-all whitespace-pre-wrap leading-relaxed">
-                      {step.cypressCommand}
+                      {step.command}
                     </code>
                   </div>
                   {step.errorMessage && (
@@ -296,14 +301,14 @@ function AccordionStepRow({
                           onChange={(e) => setDraftCommand(e.target.value)}
                           onKeyDown={(e) => {
                             if (e.key === "Enter") handleSave();
-                            if (e.key === "Escape") { setEditing(false); setDraftCommand(step.cypressCommand ?? ""); }
+                            if (e.key === "Escape") { setEditing(false); setDraftCommand(step.command ?? ""); }
                           }}
                           autoFocus
                         />
                         <Button size="icon" variant="ghost" className="h-8 w-8 shrink-0" onClick={handleSave} disabled={saving} aria-label="Save">
                           {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5 text-green-600" />}
                         </Button>
-                        <Button size="icon" variant="ghost" className="h-8 w-8 shrink-0" onClick={() => { setEditing(false); setDraftCommand(step.cypressCommand ?? ""); }} aria-label="Cancel">
+                        <Button size="icon" variant="ghost" className="h-8 w-8 shrink-0" onClick={() => { setEditing(false); setDraftCommand(step.command ?? ""); }} aria-label="Cancel">
                           <X className="h-3.5 w-3.5" />
                         </Button>
                       </div>
@@ -332,6 +337,7 @@ function AccordionStepRow({
                 {imgExpanded ? "Hide screenshot" : "View screenshot"}
               </button>
               {imgExpanded && (
+                // eslint-disable-next-line @next/next/no-img-element
                 <img
                   src={api.runner.screenshotUrl(step.screenshotPath)}
                   alt={`Step ${step.order} screenshot`}
@@ -353,14 +359,19 @@ export function RunFlow({
   flowName,
   variables,
   totalSteps,
+  isMobile = false,
   environments,
   stepSummaries,
+  agents,
+  initialEnvId,
+  initialVarValues,
 }: RunFlowProps) {
   const [pageState, setPageState] = useState<PageState>("setup");
-  const [envId, setEnvId]         = useState(environments[0]?.id ?? "");
+  const [envId, setEnvId]         = useState(initialEnvId ?? environments[0]?.id ?? "");
   const [varValues, setVarValues] = useState<Record<string, string>>(
-    Object.fromEntries(variables.map((v) => [v.key, v.defaultValue ?? ""]))
+    initialVarValues ?? Object.fromEntries(variables.map((v) => [v.key, v.defaultValue ?? ""]))
   );
+  const [agentId, setAgentId]     = useState(agents?.[0]?.tokenId ?? "");
 
   // Persist command edits across resets
   const savedEdits = useRef<Record<string, string>>({});
@@ -368,7 +379,7 @@ export function RunFlow({
   const buildSteps = (): StepLiveState[] =>
     stepSummaries.map((s) => ({
       ...s,
-      cypressCommand: savedEdits.current[s.id] ?? s.cypressCommand,
+      command: savedEdits.current[s.id] ?? s.command,
       status: "pending" as const,
     }));
 
@@ -387,7 +398,7 @@ export function RunFlow({
   const handleCommandSaved = (stepId: string, newCommand: string) => {
     savedEdits.current[stepId] = newCommand;
     setSteps((prev) =>
-      prev.map((s) => (s.id === stepId ? { ...s, cypressCommand: newCommand } : s))
+      prev.map((s) => (s.id === stepId ? { ...s, command: newCommand } : s))
     );
   };
 
@@ -477,6 +488,7 @@ export function RunFlow({
         flowId,
         environmentId: envId,
         runtimeVariables: varValues,
+        ...(isMobile && agentId ? { agentId } : {}),
       });
       runIdRef.current = runId;
       connectWs(runId);
@@ -520,6 +532,30 @@ export function RunFlow({
           </div>
         </div>
 
+        {isMobile && agents && agents.length > 0 && (
+          <>
+            <Separator />
+            <div>
+              <p className="text-sm font-medium mb-3">Device / Agent</p>
+              <div className="flex flex-col gap-2">
+                {agents.map((agent) => (
+                  <label key={agent.tokenId} className="flex items-center gap-3 cursor-pointer group">
+                    <input
+                      type="radio"
+                      name="agent"
+                      value={agent.tokenId}
+                      checked={agentId === agent.tokenId}
+                      onChange={() => setAgentId(agent.tokenId)}
+                      className="accent-primary"
+                    />
+                    <span className="text-sm font-medium">{agent.name}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          </>
+        )}
+
         {variables.length > 0 && (
           <>
             <Separator />
@@ -546,6 +582,8 @@ export function RunFlow({
             </div>
           </>
         )}
+
+        {isMobile && <AgentStatusBanner />}
 
         {errorMsg && (
           <p className="text-sm text-destructive flex items-center gap-1.5">

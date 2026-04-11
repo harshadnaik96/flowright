@@ -14,20 +14,31 @@ Think of it like building an index. You build it once, rebuild it when your app'
 
 1. Open Flowright in your browser
 2. Click **New Project**
-3. Enter your project name (e.g. "Payments App")
-4. Click **Create**
+3. Select your **platform**: Web, Android, or iOS
+4. Enter your project name (e.g. "Payments App")
+5. Click **Create**
+
+> The platform you choose determines how the app is crawled and how tests are run. You cannot change it after the project is created.
 
 ---
 
 ## Step 2 — Add an Environment
 
-An environment is a URL your team tests against. You can have multiple (dev, staging).
+An environment is your app target. You can have multiple (dev, staging).
 
 1. Inside your project, click **Add Environment**
-2. Fill in:
-   - **Name** — e.g. `staging`
-   - **Base URL** — e.g. `https://staging.app.yourcompany.com`
-   - **Seed URLs** *(optional)* — specific pages to crawl that may not be reachable from the home page (e.g. `/dashboard`, `/checkout`, `/admin/users`)
+2. Fill in the required fields:
+
+**For web projects:**
+- **Name** — e.g. `staging`
+- **Base URL** — e.g. `https://staging.app.yourcompany.com`
+- **Seed URLs** *(optional)* — specific pages to crawl that may not be reachable from the home page (e.g. `/dashboard`, `/checkout`, `/admin/users`)
+
+**For mobile (Android/iOS) projects:**
+- **Name** — e.g. `staging`
+- **App ID** — the package name of your app (e.g. `com.example.app`)
+  - Ensure the app is installed on the connected device or emulator before crawling
+  - No Seed URLs for mobile — the Maestro hierarchy crawler reads the full current screen state
 
 ---
 
@@ -48,7 +59,14 @@ Fill in:
 
 These are stored securely and never displayed again after saving.
 
-### SSO
+For **mobile** projects: Flowright will auto-generate a Maestro auth subflow at crawl time using these credentials. Every test flow will automatically begin with a login sequence.
+
+### Email + Password
+Used for environments that require email/password login.
+
+For **mobile** projects: same as Phone + OTP — an auth subflow is auto-generated at crawl time.
+
+### SSO *(web only)*
 Used for staging environments that use Okta, Azure AD, or any SSO provider.
 
 Click **Capture Session**:
@@ -57,12 +75,12 @@ Click **Capture Session**:
 3. Flowright captures the session automatically
 4. Session is valid for 8 hours by default
 
-### Custom Script
+### Custom Script *(web only)*
 For non-standard login flows. Provide a Playwright script. Contact your automation engineer to set this up.
 
 ---
 
-## Step 4 — Add Seed URLs
+## Step 4 — Add Seed URLs *(web only)*
 
 Some pages in your app are not linked from the home page. Add them manually so the crawler can reach them.
 
@@ -73,13 +91,24 @@ Examples:
 
 The crawler will visit each of these after logging in.
 
+> **Mobile projects** don't have seed URLs. The Maestro hierarchy crawler reads whatever screen is currently visible on the device.
+
 ---
 
 ## Step 5 — Run the Crawl
 
-1. Click **Crawl Now** on your environment
+**Web:**
+1. Click **Crawl** on your environment card
 2. Wait 30–60 seconds
 3. You'll see: **"247 elements found"** with the crawl timestamp
+
+**Mobile:**
+1. Open your app on the connected device or emulator and navigate to the screen(s) you want to test
+2. Click **Crawl** on your environment card
+3. Flowright runs `maestro hierarchy` against the device and reads all visible elements
+4. You'll see the element count and crawl timestamp
+
+> For mobile, the crawl reads the **currently visible screen only**. To capture elements from multiple screens, navigate through your app manually and run separate crawls — or navigate to the most representative screen before crawling.
 
 Your app is now indexed and ready for test generation.
 
@@ -87,12 +116,17 @@ Your app is now indexed and ready for test generation.
 
 ## What Gets Crawled
 
-The crawler captures elements from two phases:
-
-1. **Login page (before login)** — email/password inputs, phone fields, login buttons. This means flows that verify the login form itself will generate correct selectors.
+**Web:** The crawler captures elements from two phases:
+1. **Login page (before login)** — email/password inputs, phone fields, login buttons.
 2. **Post-login pages** — your `baseUrl` (after redirect) and all `seedUrls`.
 
 Both sets are merged into a single registry.
+
+**Mobile:** The crawler captures the accessibility tree from the current screen:
+- Visible text labels
+- Accessibility IDs (content-desc)
+- Resource IDs (Android)
+- Element bounds
 
 ---
 

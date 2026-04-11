@@ -7,7 +7,7 @@ import { ArrowLeft, Save, Loader2, FlaskConical } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
-import type { FlowStep } from "@flowright/shared";
+import type { FlowStep, Platform } from "@flowright/shared";
 import { buildEditorDocument, parseEditorDocument } from "./editorUtils";
 import { StepsToc } from "./StepsToc";
 import { MonacoEditorPane, type MonacoEditorHandle } from "./MonacoEditorPane";
@@ -17,9 +17,10 @@ type Props = {
   projectId: string;
   flowName: string;
   steps: FlowStep[];
+  platform: Platform;
 };
 
-export const BulkEditorShell = ({ flowId, projectId, flowName, steps }: Props) => {
+export const BulkEditorShell = ({ flowId, projectId, flowName, steps, platform }: Props) => {
   const router = useRouter();
   const editorPaneRef = useRef<MonacoEditorHandle | null>(null);
 
@@ -168,6 +169,7 @@ export const BulkEditorShell = ({ flowId, projectId, flowName, steps }: Props) =
               initialContent={editorContent}
               onChange={handleEditorChange}
               onCursorStepChange={handleCursorStepChange}
+              language={platform === "web" ? "javascript" : "yaml"}
             />
           </div>
         </main>

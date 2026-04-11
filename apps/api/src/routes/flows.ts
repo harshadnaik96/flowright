@@ -50,7 +50,7 @@ export async function flowRoutes(app: FastifyInstance) {
     return reply.status(204).send();
   });
 
-  // Bulk update all steps' cypressCommands — used by the bulk editor
+  // Bulk update all steps' commands — used by the bulk editor
   app.patch<{
     Params: { flowId: string };
     Body: BulkUpdateStepsRequest;
@@ -63,8 +63,8 @@ export async function flowRoutes(app: FastifyInstance) {
     }
 
     for (const s of steps) {
-      if (!s.cypressCommand?.trim()) {
-        return reply.status(400).send({ error: `Step ${s.id} has an empty cypressCommand` });
+      if (!s.command?.trim()) {
+        return reply.status(400).send({ error: `Step ${s.id} has an empty command` });
       }
     }
 
@@ -73,7 +73,7 @@ export async function flowRoutes(app: FastifyInstance) {
         await tx
           .update(flowSteps)
           .set({
-            cypressCommand: s.cypressCommand.trim(),
+            command: s.command.trim(),
             ...(s.selectorUsed !== undefined ? { selectorUsed: s.selectorUsed ?? null } : {}),
           })
           .where(and(eq(flowSteps.id, s.id), eq(flowSteps.flowId, flowId)));
@@ -83,22 +83,22 @@ export async function flowRoutes(app: FastifyInstance) {
     return { updated: steps.length };
   });
 
-  // Patch a single step's cypressCommand — used to fix a selector after a failed run
+  // Patch a single step's command — used to fix a selector after a failed run
   app.patch<{
     Params: { flowId: string; stepId: string };
-    Body: { cypressCommand: string; selectorUsed?: string | null };
+    Body: { command: string; selectorUsed?: string | null };
   }>("/:flowId/steps/:stepId", async (req, reply) => {
     const { flowId, stepId } = req.params;
-    const { cypressCommand, selectorUsed } = req.body;
+    const { command, selectorUsed } = req.body;
 
-    if (!cypressCommand?.trim()) {
-      return reply.status(400).send({ error: "cypressCommand is required" });
+    if (!command?.trim()) {
+      return reply.status(400).send({ error: "command is required" });
     }
 
     const [updated] = await db
       .update(flowSteps)
       .set({
-        cypressCommand: cypressCommand.trim(),
+        command: command.trim(),
         ...(selectorUsed !== undefined ? { selectorUsed: selectorUsed ?? null } : {}),
       })
       .where(and(eq(flowSteps.id, stepId), eq(flowSteps.flowId, flowId)))

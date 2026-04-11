@@ -4,6 +4,10 @@
 
 Flowright is a test automation tool built for QA teams. You write test cases in plain English. Flowright converts them into automated tests and runs them for you — no coding required.
 
+Flowright supports two platforms:
+- **Web** — tests run in a headless browser (Playwright)
+- **Mobile** — tests run on an Android or iOS device/emulator via Maestro CLI
+
 ---
 
 ## Who is it for?
@@ -25,10 +29,16 @@ Flowright is a test automation tool built for QA teams. You write test cases in 
 
 If you are setting up Flowright for your team for the first time:
 
-### Prerequisites
+### Prerequisites — Web testing
 - A server or VM with Docker installed
 - A Google Gemini API key
 - The app URLs you want to test (dev and/or staging)
+
+### Additional prerequisites — Mobile testing
+- Java 17+ installed on the server (required by Maestro CLI)
+- Maestro CLI installed: `curl -Ls "https://get.maestro.mobile.dev" | bash`
+- An Android emulator or connected device accessible from the server
+- The app's package name (e.g. `com.example.app`) — find it in your app's build config or Play Store URL
 
 ### Steps
 

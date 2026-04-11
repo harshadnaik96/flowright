@@ -1,9 +1,13 @@
 import type { FastifyInstance } from "fastify";
 import { db } from "../db/client";
-import { testRuns, stepResults, flows } from "../db/schema";
+import { testRuns, stepResults, flows, environments, projects, flowSteps } from "../db/schema";
 import { eq, desc } from "drizzle-orm";
-import { startRun, addRunListener, readScreenshot } from "../services/runner";
-import type { FlowVariable } from "@flowright/shared";
+import { startRun, readScreenshot } from "../services/runner";
+import { addRunListener } from "../services/ws-broadcast";
+import { agentRegistry } from "../services/agent-registry";
+import { decryptAuth } from "../services/encryption";
+import { buildFlowYamlForAgent, estimateSubflowStepCount } from "../services/runner-maestro";
+import type { FlowVariable, EnvironmentAuth } from "@flowright/shared";
 
 export async function runnerRoutes(app: FastifyInstance) {
 
@@ -11,14 +15,20 @@ export async function runnerRoutes(app: FastifyInstance) {
   // Creates a TestRun record and kicks off async execution.
   // Returns immediately with runId so the client can connect to WebSocket.
 
+  // ── List connected agents ─────────────────────────────────────────────────
+  app.get("/agents", async () => {
+    return agentRegistry.getAll();
+  });
+
   app.post<{
     Body: {
       flowId: string;
       environmentId: string;
       runtimeVariables: Record<string, string>;
+      agentId?: string;
     };
   }>("/", async (req, reply) => {
-    const { flowId, environmentId, runtimeVariables = {} } = req.body;
+    const { flowId, environmentId, runtimeVariables = {}, agentId } = req.body;
 
     if (!flowId) return reply.status(400).send({ error: "flowId is required" });
     if (!environmentId) return reply.status(400).send({ error: "environmentId is required" });
@@ -29,15 +39,64 @@ export async function runnerRoutes(app: FastifyInstance) {
     if (flow.status !== "approved")
       return reply.status(400).send({ error: "Only approved flows can be run" });
 
+    // Look up project platform via environment → project join
+    const [envRow] = await db
+      .select({ platform: projects.platform })
+      .from(environments)
+      .innerJoin(projects, eq(environments.projectId, projects.id))
+      .where(eq(environments.id, environmentId));
+
+    if (!envRow) return reply.status(404).send({ error: "Environment not found" });
+
     const [run] = await db
       .insert(testRuns)
       .values({ flowId, environmentId, runtimeVariables, status: "pending" })
       .returning();
 
-    // Fire-and-forget — client connects to WS to receive progress
-    startRun(run.id).catch((err) => {
-      app.log.error({ err, runId: run.id }, "startRun threw unexpectedly");
-    });
+    const isMobile = envRow.platform === "android" || envRow.platform === "ios";
+
+    if (isMobile) {
+      // Mobile runs execute on the tester's local agent
+      const agent = agentId ? agentRegistry.get(agentId) : agentRegistry.getAnyOnline();
+      if (!agent) {
+        await db.delete(testRuns).where(eq(testRuns.id, run.id));
+        return reply.status(409).send({
+          error: agentId
+            ? "Selected agent is not connected."
+            : "Agent not connected. Open the Flowright agent on your laptop.",
+        });
+      }
+
+      // Build the flow YAML and env vars, then send the job to the agent
+      const [env] = await db.select().from(environments).where(eq(environments.id, environmentId));
+      const steps = await db
+        .select()
+        .from(flowSteps)
+        .where(eq(flowSteps.flowId, flowId))
+        .orderBy(flowSteps.order);
+
+      const auth = decryptAuth(env.auth as EnvironmentAuth);
+      const flowYaml = buildFlowYamlForAgent(env.baseUrl, steps.map((s) => s.command), env.authSubflowPath);
+
+      const envVars: Record<string, string> = {};
+      if (auth.phoneNumber) envVars["PHONE_NUMBER"] = auth.phoneNumber;
+      if (auth.otp)         envVars["OTP"]          = auth.otp;
+      if (auth.mpin)        envVars["MPIN"]         = auth.mpin;
+      if (auth.email)       envVars["EMAIL"]        = auth.email;
+      if (auth.password)    envVars["PASSWORD"]     = auth.password;
+      Object.assign(envVars, runtimeVariables);
+
+      await db.update(testRuns).set({ status: "running" }).where(eq(testRuns.id, run.id));
+
+      const stepOrders = steps.map((s) => s.order);
+      const authStepCount = estimateSubflowStepCount(auth);
+      agentRegistry.sendJob(agent.tokenId, { runId: run.id, flowYaml, envVars, stepOrders, authStepCount });
+    } else {
+      // Web runs execute directly on the server
+      startRun(run.id).catch((err) => {
+        app.log.error({ err, runId: run.id }, "startRun threw unexpectedly");
+      });
+    }
 
     return reply.status(201).send({ runId: run.id });
   });

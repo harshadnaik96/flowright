@@ -1,7 +1,7 @@
 # Stage 1 — Technical Reference: Project Architecture
 
 ## Overview
-Flowright is a deployed web application that converts plain-English test cases into automated Cypress flows. It is a pnpm monorepo with two apps and one shared package.
+Flowright is a deployed web application that converts plain-English test cases into automated tests. It supports two platforms: **web** (Playwright + Cypress-style commands) and **mobile** (Android/iOS via Maestro CLI). It is a pnpm monorepo with two apps and one shared package.
 
 ---
 
@@ -29,11 +29,15 @@ flowright/
 | Frontend    | Next.js, TypeScript, Tailwind CSS, shadcn/ui | 15.x |
 | Backend     | Fastify                           | 5.x      |
 | LLM         | Google Gemini via `@google/genai` | latest   |
-| Crawler     | Playwright (headless Chromium)    | 1.49.x   |
-| Runner      | Cypress (headless on server)      | TBD      |
+| Web Crawler | Playwright (headless Chromium)    | 1.49.x   |
+| Web Runner  | Playwright (Cypress-to-Playwright transpiler) | — |
+| Mobile Crawler | Maestro CLI (`maestro hierarchy`) | latest |
+| Mobile Runner | Maestro CLI (`maestro test`)    | latest   |
 | Database    | PostgreSQL + Drizzle ORM          | PG 16    |
 | Realtime    | WebSocket via `@fastify/websocket`| —        |
 | Deployment  | Docker + Docker Compose           | —        |
+
+> Mobile runner requires **Java 17+** in the deployment environment (Maestro CLI dependency).
 
 ---
 
@@ -45,12 +49,14 @@ Key types:
 
 | Type | Description |
 |------|-------------|
-| `Project` | Top-level grouping of flows and environments |
-| `Environment` | A named URL target (dev, staging) within a project |
+| `Platform` | `"web" \| "android" \| "ios"` |
+| `Project` | Top-level grouping of flows and environments; includes `platform` field |
+| `Environment` | A named target within a project; `baseUrl` holds the app URL (web) or package name (mobile) |
 | `SelectorRegistry` | Crawled element map for an environment |
-| `SelectorEntry` | Single element: label, selector, type, page |
+| `SelectorEntry` | Single web element: label, CSS selector, type, page |
+| `MobileSelectorEntry` | Single mobile element: `text`, `accessibilityId`, `resourceId`, `bounds` |
 | `Flow` | A named test case with status (draft/approved/archived) |
-| `FlowStep` | One step within a flow: plain English + Cypress command |
+| `FlowStep` | One step within a flow: plain English + `command` (Cypress-style for web, Maestro YAML for mobile) |
 | `TestRun` | An execution of a flow against an environment |
 | `StepResult` | Per-step outcome with screenshot and error detail |
 | `WsEvent` | WebSocket event emitted during a test run |
@@ -60,6 +66,12 @@ Key types:
 ## Database Schema (Drizzle ORM)
 
 Tables: `projects`, `environments`, `selector_registries`, `flows`, `flow_steps`, `test_runs`, `step_results`
+
+Notable columns:
+- `projects.platform` — `platform` enum: `web | android | ios` (default `web`)
+- `environments.base_url` — stores app URL for web, package name (e.g. `com.example.app`) for mobile
+- `environments.auth_subflow_path` — nullable; path to auto-generated Maestro auth subflow YAML for mobile environments
+- `flow_steps.command` — stores Cypress-style command for web, Maestro YAML line for mobile
 
 Relationships:
 ```

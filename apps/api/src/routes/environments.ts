@@ -16,9 +16,9 @@ function sanitizeAuth(auth: EnvironmentAuth): EnvironmentAuth {
       (safe as Record<string, unknown>)[field] = "••••••••";
     }
   }
-  // Expose only last 4 digits of username if present
-  if (safe.username && safe.username !== "••••••••") {
-    safe.username = `••••${safe.username.slice(-4)}`;
+  // Expose only last 4 digits of email if present
+  if (safe.email && safe.email !== "••••••••") {
+    safe.email = `••••${safe.email.slice(-4)}`;
   }
   return safe;
 }

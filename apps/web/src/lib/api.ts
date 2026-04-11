@@ -20,8 +20,9 @@ async function request<T>(
   path: string,
   options?: RequestInit
 ): Promise<T> {
+  const hasBody = !!options?.body
   const res = await fetch(`${BASE}${path}`, {
-    headers: { "Content-Type": "application/json" },
+    headers: hasBody ? { "Content-Type": "application/json" } : {},
     ...options,
   });
 
@@ -103,7 +104,7 @@ export const api = {
         steps: Array<{
           order: number;
           plainEnglish: string;
-          cypressCommand: string;
+          command: string;
           selectorUsed: string | null;
         }>;
         detectedVariables: FlowVariable[];
@@ -116,7 +117,7 @@ export const api = {
         currentSteps: Array<{
           order: number;
           plainEnglish: string;
-          cypressCommand: string;
+          command: string;
           selectorUsed: string | null;
         }>;
         environmentId: string;
@@ -126,7 +127,7 @@ export const api = {
         step: {
           order: number;
           plainEnglish: string;
-          cypressCommand: string;
+          command: string;
           selectorUsed: string | null;
         };
       }>(`/generator/regenerate-step/${flowId}`, {
@@ -147,7 +148,7 @@ export const api = {
         steps: Array<{
           order: number;
           plainEnglish: string;
-          cypressCommand: string;
+          command: string;
           selectorUsed: string | null;
         }>;
         detectedVariables: FlowVariable[];
@@ -161,7 +162,7 @@ export const api = {
         steps: Array<{
           order: number;
           plainEnglish: string;
-          cypressCommand: string;
+          command: string;
           selectorUsed?: string | null;
         }>;
         variables: FlowVariable[];
@@ -185,7 +186,7 @@ export const api = {
     updateStep: (
       flowId: string,
       stepId: string,
-      body: { cypressCommand: string; selectorUsed?: string | null }
+      body: { command: string; selectorUsed?: string | null }
     ) =>
       request<{ step: FlowStep }>(`/flows/${flowId}/steps/${stepId}`, {
         method: "PATCH",
@@ -198,10 +199,34 @@ export const api = {
       }),
   },
 
+  // ─── Agent Tokens ───────────────────────────────────────────────────────────
+
+  agentTokens: {
+    list: () =>
+      request<Array<{
+        id: string;
+        name: string;
+        createdAt: string;
+        lastConnectedAt: string | null;
+        online: boolean;
+      }>>("/agent-tokens"),
+    create: (name: string) =>
+      request<{
+        id: string;
+        name: string;
+        createdAt: string;
+        token: string; // plain token — returned only once
+      }>("/agent-tokens", { method: "POST", body: JSON.stringify({ name }) }),
+    revoke: (id: string) =>
+      request<void>(`/agent-tokens/${id}`, { method: "DELETE" }),
+  },
+
   // ─── Runner ─────────────────────────────────────────────────────────────────
 
   runner: {
-    start: (body: { flowId: string; environmentId: string; runtimeVariables: Record<string, string> }) =>
+    agents: () =>
+      request<Array<{ tokenId: string; name: string; connectedAt: string }>>("/runner/agents"),
+    start: (body: { flowId: string; environmentId: string; runtimeVariables: Record<string, string>; agentId?: string }) =>
       request<{ runId: string }>("/runner", { method: "POST", body: JSON.stringify(body) }),
     list: (flowId: string) =>
       request<TestRun[]>(`/runner?flowId=${flowId}`),

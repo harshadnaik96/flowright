@@ -9,9 +9,12 @@ export default async function BulkEditPage({
 }) {
   const { id: projectId, flowId } = await params;
 
-  let flow;
+  let flow, project;
   try {
-    flow = await api.flows.get(flowId);
+    [flow, project] = await Promise.all([
+      api.flows.get(flowId),
+      api.projects.get(projectId),
+    ]);
   } catch {
     notFound();
   }
@@ -24,6 +27,7 @@ export default async function BulkEditPage({
       projectId={projectId}
       flowName={flow.name}
       steps={flow.steps}
+      platform={project.platform}
     />
   );
 }

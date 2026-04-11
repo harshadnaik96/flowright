@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { FlaskConical } from "lucide-react"
+import { FlaskConical, Settings } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 export function AppShell({ children }: { children: React.ReactNode }) {
@@ -45,8 +45,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </nav>
           </div>
           
-          <div className="flex items-center gap-4">
-            {/* Future: User profile, notifications, etc. */}
+          <div className="flex items-center gap-2">
+            <Link
+              href="/settings/agent"
+              className={cn(
+                "p-2 rounded-full transition-all",
+                pathname.startsWith("/settings")
+                  ? "bg-primary/10 text-primary"
+                  : "text-muted-foreground hover:text-foreground hover:bg-accent"
+              )}
+              aria-label="Settings"
+            >
+              <Settings className="h-4 w-4" />
+            </Link>
           </div>
         </div>
       </header>

@@ -1,7 +1,11 @@
 # Stage 3 — Technical Reference: LLM Generator
 
 ## Overview
-The generator is a two-step Gemini pipeline that converts a tester's plain-English test case into reviewed, approved Cypress steps. The refine step is explicitly separated from the generation step so testers can review and correct the NL before any code is generated.
+The generator is a two-step Gemini pipeline that converts a tester's plain-English test case into reviewed, approved automation steps. The refine step is explicitly separated from the generation step so testers can review and correct the NL before any code is generated.
+
+The generation step is platform-aware:
+- **Web** (`platform = "web"`) — produces Cypress-style commands (`cy.get(sel).click()`, etc.)
+- **Mobile** (`platform = "android" | "ios"`) — produces Maestro YAML steps (`- tapOn: "Login"`, etc.)
 
 ---
 
@@ -10,9 +14,19 @@ The generator is a two-step Gemini pipeline that converts a tester's plain-Engli
 ```
 apps/api/src/
 ├── services/
-│   └── gemini.ts          Gemini client + three LLM operations
+│   ├── gemini.ts              Gemini client — web: refine, generateSteps, regenerateStep
+│   └── gemini-maestro.ts      Mobile: generateMaestroSteps
 ├── routes/
-│   └── generator.ts       Refine, generate, regenerate-step, approve endpoints
+│   └── generator.ts           Refine, generate, regenerate-step, approve endpoints (platform-aware)
+```
+
+The generator route checks `project.platform` and delegates generation:
+```ts
+if (project.platform === 'web') {
+  result = await generateSteps(refined, registry, flowName);
+} else {
+  result = await generateMaestroSteps(refined, mobileRegistry, flowName, project.platform);
+}
 ```
 
 ---
@@ -104,6 +118,32 @@ archived → set manually later (flow no longer in active rotation)
 ```
 
 Only `approved` flows can be executed by the runner.
+
+---
+
+---
+
+## Mobile Generation (`gemini-maestro.ts`)
+
+`generateMaestroSteps()` is the mobile parallel to `generateSteps()`. Key differences in the prompt:
+
+- Role: "You are a Maestro mobile automation engineer"
+- Selector source: accessibility IDs and visible text from `MobileSelectorEntry[]` (not CSS selectors)
+- Output format: Maestro YAML (`tapOn`, `inputText`, `assertVisible`, `swipeDown`, etc.)
+- Variable format: `${VARIABLE_NAME}` instead of `Cypress.env('key')`
+- Auth variables: `${PHONE}`, `${OTP}`, `${MPIN}`, `${EMAIL}`, `${PASSWORD}`
+
+Output schema per step:
+```json
+{
+  "order": 1,
+  "plainEnglish": "Tap the Login button",
+  "command": "- tapOn: \"Login\"",
+  "selectorUsed": "Login"
+}
+```
+
+The `command` field is stored in `flow_steps.command` (same column as web Cypress commands). Platform determines interpretation at run time.
 
 ---
 

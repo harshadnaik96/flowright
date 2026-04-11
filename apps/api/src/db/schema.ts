@@ -14,6 +14,7 @@ export const flowStatusEnum = pgEnum("flow_status", ["draft", "approved", "archi
 export const runStatusEnum = pgEnum("run_status", ["pending", "running", "passed", "failed", "error"]);
 export const stepResultStatusEnum = pgEnum("step_result_status", ["passed", "failed", "skipped"]);
 export const authTypeEnum = pgEnum("auth_type", ["none", "credentials", "email-password", "sso", "custom-script"]);
+export const platformEnum = pgEnum("platform", ["web", "android", "ios"]);
 
 // ─── Projects ─────────────────────────────────────────────────────────────────
 
@@ -21,6 +22,7 @@ export const projects = pgTable("projects", {
   id: uuid("id").primaryKey().defaultRandom(),
   name: text("name").notNull(),
   description: text("description"),
+  platform: platformEnum("platform").default("web").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -38,6 +40,7 @@ export const environments = pgTable("environments", {
   baseUrl: text("base_url").notNull(),
   auth: jsonb("auth").notNull().default("{}"),      // EnvironmentAuth (encrypted fields)
   seedUrls: jsonb("seed_urls").notNull().default("[]"), // string[]
+  authSubflowPath: text("auth_subflow_path"),        // mobile only: path to generated Maestro auth subflow
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -78,7 +81,7 @@ export const flowSteps = pgTable("flow_steps", {
     .notNull(),
   order: integer("order").notNull(),
   plainEnglish: text("plain_english").notNull(),
-  cypressCommand: text("cypress_command").notNull(),
+  command: text("command").notNull(),
   selectorUsed: text("selector_used"),
 });
 
@@ -96,6 +99,18 @@ export const testRuns = pgTable("test_runs", {
   runtimeVariables: jsonb("runtime_variables").notNull().default("{}"), // Record<string, string>
   startedAt: timestamp("started_at").defaultNow().notNull(),
   completedAt: timestamp("completed_at"),
+});
+
+// ─── Agent Tokens ─────────────────────────────────────────────────────────────
+// Each tester generates a token to authenticate their local Flowright agent.
+// The plain token is shown once — only the SHA-256 hash is stored.
+
+export const agentTokens = pgTable("agent_tokens", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull(),                  // e.g. "Harshad's MacBook"
+  tokenHash: text("token_hash").notNull().unique(), // SHA-256 of plain token
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  lastConnectedAt: timestamp("last_connected_at"), // updated on each WS connect
 });
 
 // ─── Step Results ─────────────────────────────────────────────────────────────

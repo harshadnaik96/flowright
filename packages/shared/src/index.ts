@@ -1,9 +1,12 @@
 // ─── Projects & Environments ─────────────────────────────────────────────────
 
+export type Platform = "web" | "android" | "ios";
+
 export interface Project {
   id: string;
   name: string;
   description?: string;
+  platform: Platform;
   createdAt: string;
   updatedAt: string;
 }
@@ -33,6 +36,7 @@ export interface Environment {
   baseUrl: string;
   auth: EnvironmentAuth;
   seedUrls: string[];     // additional pages to crawl beyond baseUrl
+  authSubflowPath?: string; // mobile only: path to generated Maestro auth subflow
   createdAt: string;
 }
 
@@ -55,6 +59,14 @@ export interface SelectorEntry {
   textContent?: string;
   placeholder?: string;
   ariaLabel?: string;
+}
+
+export interface MobileSelectorEntry {
+  label: string;
+  text?: string;
+  accessibilityId?: string;
+  resourceId?: string;
+  bounds?: string;        // e.g. "[0,100][1080,200]"
 }
 
 export interface SelectorRegistry {
@@ -93,7 +105,7 @@ export interface FlowStep {
   flowId: string;
   order: number;
   plainEnglish: string;
-  cypressCommand: string;
+  command: string;
   selectorUsed?: string;
 }
 
@@ -128,7 +140,7 @@ export interface StepResult {
 
 export type BulkUpdateStepItem = {
   id: string;
-  cypressCommand: string;
+  command: string;
   selectorUsed?: string | null;
 };
 
@@ -145,6 +157,7 @@ export type BulkUpdateStepsResponse = {
 export interface CreateProjectRequest {
   name: string;
   description?: string;
+  platform?: Platform;
 }
 
 export interface CreateEnvironmentRequest {

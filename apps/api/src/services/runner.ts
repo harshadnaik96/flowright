@@ -3,42 +3,14 @@ import { db } from "../db/client";
 import { testRuns, stepResults, flows, flowSteps, environments } from "../db/schema";
 import { eq } from "drizzle-orm";
 import { decryptAuth } from "./encryption";
-import type { EnvironmentAuth, WsEvent, RunStatus } from "@flowright/shared";
+import type { EnvironmentAuth, RunStatus } from "@flowright/shared";
 import { mkdir, readFile } from "fs/promises";
 import { join } from "path";
+import { addRunListener, broadcast } from "./ws-broadcast";
+
+export { addRunListener };
 
 const SCREENSHOTS_BASE = process.env.SCREENSHOT_DIR ?? "/tmp/flowright-runs";
-
-// ─── WebSocket broadcast registry ─────────────────────────────────────────────
-
-interface WsClient {
-  send: (data: string) => void;
-  readyState: number;
-  on: (event: string, handler: () => void) => void;
-}
-
-const runListeners = new Map<string, Set<WsClient>>();
-
-export function addRunListener(runId: string, ws: WsClient): void {
-  if (!runListeners.has(runId)) runListeners.set(runId, new Set());
-  runListeners.get(runId)!.add(ws);
-  ws.on("close", () => runListeners.get(runId)?.delete(ws));
-}
-
-function broadcast(runId: string, event: WsEvent): void {
-  const listeners = runListeners.get(runId);
-  if (!listeners) return;
-  const payload = JSON.stringify(event);
-  for (const ws of listeners) {
-    if (ws.readyState === 1 /* OPEN */) {
-      try {
-        ws.send(payload);
-      } catch {
-        // ignore send errors on closed sockets
-      }
-    }
-  }
-}
 
 export async function readScreenshot(runId: string, filename: string): Promise<Buffer> {
   if (!/^step-\d+\.png$/.test(filename)) throw new Error("Invalid screenshot filename");
@@ -397,14 +369,14 @@ function buildCy(page: Page, baseUrl: string, queue: Array<() => Promise<unknown
 
 async function executeStep(
   page: Page,
-  cypressCommand: string,
+  command: string,
   envVars: Record<string, string>,
   baseUrl: string
 ): Promise<{ warningMessage?: string }> {
   const queue: Array<() => Promise<unknown>> = [];
 
   // Resolve Cypress.env('key') → actual value
-  const resolved = cypressCommand.replace(
+  const resolved = command.replace(
     /Cypress\.env\(['"]([^'"]+)['"]\)/g,
     (_match, key: string) => JSON.stringify(envVars[key] ?? "")
   );
@@ -494,7 +466,7 @@ export async function startRun(runId: string): Promise<void> {
       let screenshotRelPath: string | undefined;
 
       try {
-        const result = await executeStep(page, step.cypressCommand, envVars, env.baseUrl);
+        const result = await executeStep(page, step.command, envVars, env.baseUrl);
         warningMessage = result.warningMessage;
       } catch (err) {
         status = "failed";

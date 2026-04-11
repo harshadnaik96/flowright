@@ -1,7 +1,11 @@
 # Stage 5 — Technical Reference: Runner + Results
 
 ## Overview
-The runner takes an approved flow, executes each step using Playwright (headless Chromium), captures a screenshot after every step, streams live progress via WebSocket, and persists results to PostgreSQL.
+The runner takes an approved flow, executes each step, captures a screenshot after every step, streams live progress via WebSocket, and persists results to PostgreSQL.
+
+The runner is platform-aware:
+- **Web** (`platform = "web"`) — Playwright headless Chromium via a Cypress-to-Playwright transpiler
+- **Mobile** (`platform = "android" | "ios"`) — Maestro CLI (`maestro test`), spawned as a child process; parses stdout for step events
 
 ---
 
@@ -10,16 +14,26 @@ The runner takes an approved flow, executes each step using Playwright (headless
 ```
 apps/api/src/
 ├── services/
-│   └── runner.ts          Playwright executor + WS broadcast registry
+│   ├── runner.ts              Web Playwright executor + WS broadcast registry
+│   └── runner-maestro.ts      Mobile Maestro CLI executor + WS broadcast
 └── routes/
-    └── runner.ts          HTTP + WebSocket routes
+    └── runner.ts              HTTP + WebSocket routes (platform-aware dispatch)
 
 apps/web/src/
 ├── components/flow/
-│   └── RunFlow.tsx        Client component — setup form + live view + results
+│   └── RunFlow.tsx            Client component — setup form + live view + results
 └── app/projects/[id]/flows/[flowId]/
     └── run/
-        └── page.tsx       Server component — fetches flow + environments
+        └── page.tsx           Server component — fetches flow + environments
+```
+
+The runner route dispatches by platform:
+```ts
+if (project.platform === 'web') {
+  await startRun(runId);         // Playwright
+} else {
+  await startMobileRun(runId);   // Maestro
+}
 ```
 
 ---
@@ -78,6 +92,36 @@ startRun(runId):
   10. Update run status → "passed" | "failed"
   11. Broadcast run:completed
 ```
+
+---
+
+---
+
+## Mobile Runner (`runner-maestro.ts`)
+
+`startMobileRun(runId)` handles mobile flows:
+
+```
+startMobileRun(runId):
+  1. Load run + steps + environment from DB
+  2. Decrypt environment auth
+  3. Write all step commands to a temp Maestro YAML file
+     (prepend runFlow: auth subflow if auth_subflow_path set)
+  4. spawn: maestro test <file.yaml> --env KEY=VALUE
+  5. Parse stdout line-by-line:
+     ✅  Tap on "Login"   → step:passed
+     ❌  Assert visible…  → step:failed
+  6. Broadcast WS events matching the web runner event schema
+  7. On process close → mark run completed / failed
+```
+
+Maestro stdout patterns parsed:
+```
+✅  <step description>   → step:passed
+❌  <step description>   → step:failed
+```
+
+The same `WsEvent` schema is used for both web and mobile runs. The frontend `RunFlow.tsx` component handles both without platform-specific branching.
 
 ---
 
@@ -159,12 +203,22 @@ Screenshots are taken after each step (pass or fail). If the screenshot call its
 
 ## Auth handling at run time
 
+### Web
+
 | Auth type | Runner behaviour |
 |-----------|-----------------|
 | `none` | Launch plain context |
 | `credentials` | Plain context — flow steps handle login via injected `phone_number`, `env_otp`, `env_mpin` |
 | `sso` | Inject `storageState` into browser context so session is already active |
-| `custom-script` | Not supported in Stage 5 — plain context used |
+| `custom-script` | Plain context used |
+
+### Mobile
+
+| Auth type | Runner behaviour |
+|-----------|-----------------|
+| `none` | No auth subflow prepended |
+| `credentials` | Maestro YAML includes `runFlow: subflows/env-{id}-auth.yaml` as first step; `PHONE`, `OTP`, `MPIN` passed as `--env` args |
+| `email-password` | Same as credentials with `EMAIL` and `PASSWORD` env vars |
 
 ---
 

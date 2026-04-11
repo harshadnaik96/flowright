@@ -8,6 +8,9 @@ import { crawlerRoutes } from "./routes/crawler";
 import { generatorRoutes } from "./routes/generator";
 import { flowRoutes } from "./routes/flows";
 import { runnerRoutes } from "./routes/runner";
+import { agentTokenRoutes } from "./routes/agent-tokens";
+import { downloadsRoutes } from "./routes/downloads";
+import { agentRegistry } from "./services/agent-registry";
 
 const app = Fastify({ logger: true });
 
@@ -35,13 +38,29 @@ async function bootstrap() {
   await app.register(projectRoutes, { prefix: "/projects" });
   await app.register(environmentRoutes, { prefix: "/" });
   await app.register(crawlerRoutes, { prefix: "/crawler" });
-
   await app.register(generatorRoutes, { prefix: "/generator" });
   await app.register(flowRoutes, { prefix: "/flows" });
   await app.register(runnerRoutes, { prefix: "/runner" });
+  await app.register(agentTokenRoutes, { prefix: "/agent-tokens" });
+  await app.register(downloadsRoutes, { prefix: "/" });
+
+  // Agent WebSocket endpoint — agents connect here with their token
+  app.get("/agent/ws", { websocket: true }, async (socket, req) => {
+    const token = (req.query as Record<string, string>).token;
+    if (!token) {
+      socket.close(1008, "token required");
+      return;
+    }
+    const accepted = await agentRegistry.register(socket, token);
+    if (!accepted) {
+      socket.close(1008, "invalid token");
+    }
+  });
 
   const port = Number(process.env.PORT ?? 3001);
-  const host = process.env.HOST ?? "0.0.0.0";
+  // "::" listens on all IPv6 interfaces and, via dual-stack, also accepts
+  // IPv4 connections — so both "localhost" (::1) and "127.0.0.1" work.
+  const host = process.env.HOST ?? "::";
 
   await app.listen({ port, host });
   app.log.info(`Flowright API running on http://${host}:${port}`);

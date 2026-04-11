@@ -24,9 +24,10 @@ type Props = {
   initialContent: string;
   onChange: (value: string) => void;
   onCursorStepChange: (order: number) => void;
+  language?: string;
 };
 
-export const MonacoEditorPane = ({ ref, initialContent, onChange, onCursorStepChange }: Props) => {
+export const MonacoEditorPane = ({ ref, initialContent, onChange, onCursorStepChange, language = "javascript" }: Props) => {
   const editorRef = useRef<IStandaloneCodeEditor>(null);
   const activeOrderRef = useRef<number | null>(null);
 
@@ -102,7 +103,7 @@ export const MonacoEditorPane = ({ ref, initialContent, onChange, onCursorStepCh
       `}</style>
       <MonacoEditor
         defaultValue={initialContent}
-        language="javascript"
+        language={language}
         theme="vs-dark"
         options={{
           fontSize: 13,

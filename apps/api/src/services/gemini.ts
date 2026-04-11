@@ -54,7 +54,7 @@ ${rawInput}`;
 export interface GeneratedStep {
   order: number;
   plainEnglish: string;
-  cypressCommand: string;
+  command: string;
   selectorUsed: string | null;
 }
 
@@ -124,7 +124,7 @@ Return a JSON object with this exact shape:
     {
       "order": 1,
       "plainEnglish": "Navigate to the login page",
-      "cypressCommand": "cy.visit('/login')",
+      "command": "cy.visit('/login')",
       "selectorUsed": null
     }
   ],
@@ -152,10 +152,10 @@ Return a JSON object with this exact shape:
               properties: {
                 order: { type: Type.NUMBER },
                 plainEnglish: { type: Type.STRING },
-                cypressCommand: { type: Type.STRING },
+                command: { type: Type.STRING },
                 selectorUsed: { type: Type.STRING },
               },
-              required: ["order", "plainEnglish", "cypressCommand"],
+              required: ["order", "plainEnglish", "command"],
             },
           },
           detectedVariables: {
@@ -183,7 +183,7 @@ Return a JSON object with this exact shape:
 
   // Ensure phone_number is always in detectedVariables if any step uses it
   const usesPhone = parsed.steps.some((s) =>
-    s.cypressCommand.includes("env('phone_number')"),
+    s.command.includes("env('phone_number')"),
   );
   if (
     usesPhone &&
@@ -222,7 +222,7 @@ export async function regenerateStep(
 
 CURRENT STEP:
 Plain English: ${stepToFix.plainEnglish}
-Cypress Command: ${stepToFix.cypressCommand}
+Command: ${stepToFix.command}
 Selector Used: ${stepToFix.selectorUsed ?? "none"}
 
 TESTER'S CORRECTION:
@@ -235,7 +235,7 @@ Return a JSON object for the corrected step:
 {
   "order": ${stepToFix.order},
   "plainEnglish": "corrected plain English description",
-  "cypressCommand": "cy.correctedCommand()",
+  "command": "cy.correctedCommand()",
   "selectorUsed": "selector or null"
 }`;
 
@@ -249,10 +249,10 @@ Return a JSON object for the corrected step:
         properties: {
           order: { type: Type.NUMBER },
           plainEnglish: { type: Type.STRING },
-          cypressCommand: { type: Type.STRING },
+          command: { type: Type.STRING },
           selectorUsed: { type: Type.STRING },
         },
-        required: ["order", "plainEnglish", "cypressCommand"],
+        required: ["order", "plainEnglish", "command"],
       },
     },
   });

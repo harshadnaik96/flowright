@@ -9,11 +9,14 @@ Flowright has a simple top navigation bar. Everything starts from **Projects**.
 ## Creating a Project
 
 1. Click **New Project** on the dashboard
-2. Enter a name (e.g. "Payments App")
-3. Optionally add a description
-4. Click **Create Project**
+2. Select a **platform**: Web, Android, or iOS
+3. Enter a name (e.g. "Payments App")
+4. Optionally add a description
+5. Click **Create Project**
 
 You'll be taken to the project page where you can add environments and create flows.
+
+> The platform you choose determines how crawling and test execution work. It cannot be changed after the project is created.
 
 ---
 
@@ -21,7 +24,9 @@ You'll be taken to the project page where you can add environments and create fl
 
 The project page has two sections:
 
-**Environments** — the app URLs your team tests against (dev, staging). Each environment shows its auth type and has a Crawl button.
+**Environments** — the app targets your team tests against (dev, staging).
+- Web projects: shows the hostname of the base URL and a Crawl button
+- Mobile projects: shows the app package name (e.g. `com.example.app`) and a Crawl button
 
 **Flows** — all test flows in this project. Each flow shows its status (Draft or Approved) and a Run button for approved flows.
 
@@ -49,7 +54,10 @@ Flowright rewrites your test case as a clean, numbered list of steps. Read throu
 
 ### Step 3 — Review Steps
 
-You'll see each step listed with its plain English description. A **Show code** toggle reveals the underlying Cypress command — you don't need to read it unless you're curious.
+You'll see each step listed with its plain English description. A **Show code** toggle reveals the underlying automation command — you don't need to read it unless you're curious.
+
+- Web projects: shows Cypress-style commands (`cy.get(...).click()`)
+- Mobile projects: shows Maestro YAML (`- tapOn: "Login"`)
 
 **To fix a step:**
 1. Hover over it — an edit icon appears on the right
