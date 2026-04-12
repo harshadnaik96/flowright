@@ -13,6 +13,7 @@ import {
 } from "../services/gemini-maestro";
 import type {
   SelectorEntry,
+  MobileSelectorEntry,
   FlowVariable,
   RegenerateStepRequest,
 } from "@flowright/shared";
@@ -77,28 +78,26 @@ export async function generatorRoutes(app: FastifyInstance) {
 
     const mobile = isMobile(project.platform);
 
-    // For web: require a crawl registry. For mobile: Maestro uses text-based matching, no registry needed.
-    let entries: SelectorEntry[] = [];
-    if (!mobile) {
-      const [registry] = await db
-        .select()
-        .from(selectorRegistries)
-        .where(eq(selectorRegistries.environmentId, environmentId))
-        .orderBy(desc(selectorRegistries.crawledAt))
-        .limit(1);
+    // Load the latest crawl registry for this environment (required for web, optional for mobile).
+    const [registry] = await db
+      .select()
+      .from(selectorRegistries)
+      .where(eq(selectorRegistries.environmentId, environmentId))
+      .orderBy(desc(selectorRegistries.crawledAt))
+      .limit(1);
 
-      if (!registry) {
-        return reply.status(400).send({
-          error: "No selector registry found for this environment. Run a crawl first.",
-        });
-      }
-      entries = registry.entries as SelectorEntry[];
+    if (!mobile && !registry) {
+      return reply.status(400).send({
+        error: "No selector registry found for this environment. Run a crawl first.",
+      });
     }
+
+    const entries = (registry?.entries ?? []) as SelectorEntry[] | MobileSelectorEntry[];
 
     try {
       const result = mobile
-        ? await generateMaestroSteps(refinedTestCase.trim(), flowName.trim())
-        : await generateSteps(refinedTestCase.trim(), entries, flowName.trim());
+        ? await generateMaestroSteps(refinedTestCase.trim(), flowName.trim(), entries as MobileSelectorEntry[])
+        : await generateSteps(refinedTestCase.trim(), entries as SelectorEntry[], flowName.trim());
 
       // Save as draft flow
       const [flow] = await db
@@ -152,29 +151,31 @@ export async function generatorRoutes(app: FastifyInstance) {
     const [project] = await db.select().from(projects).where(eq(projects.id, projectId));
     const mobile = project ? isMobile(project.platform) : false;
 
+    const [registry] = await db
+      .select()
+      .from(selectorRegistries)
+      .where(eq(selectorRegistries.environmentId, environmentId))
+      .orderBy(desc(selectorRegistries.crawledAt))
+      .limit(1);
+
+    const registryEntries = (registry?.entries ?? []) as SelectorEntry[] | MobileSelectorEntry[];
+
     try {
       if (mobile) {
         const fixed = await regenerateMaestroStep(
           stepIndex,
           instruction.trim(),
           currentSteps as Parameters<typeof regenerateMaestroStep>[2],
+          registryEntries as MobileSelectorEntry[],
         );
         return { step: fixed };
       }
 
-      const [registry] = await db
-        .select()
-        .from(selectorRegistries)
-        .where(eq(selectorRegistries.environmentId, environmentId))
-        .orderBy(desc(selectorRegistries.crawledAt))
-        .limit(1);
-
-      const entries = (registry?.entries as SelectorEntry[]) ?? [];
       const fixed = await regenerateStep(
         stepIndex,
         instruction.trim(),
         currentSteps as Parameters<typeof regenerateStep>[2],
-        entries
+        registryEntries as SelectorEntry[],
       );
       return { step: fixed };
     } catch (err: unknown) {
@@ -254,27 +255,25 @@ export async function generatorRoutes(app: FastifyInstance) {
     const [project] = await db.select().from(projects).where(eq(projects.id, flow.projectId));
     const mobile = project ? isMobile(project.platform) : false;
 
-    let entries: SelectorEntry[] = [];
-    if (!mobile) {
-      const [registry] = await db
-        .select()
-        .from(selectorRegistries)
-        .where(eq(selectorRegistries.environmentId, environmentId))
-        .orderBy(desc(selectorRegistries.crawledAt))
-        .limit(1);
+    const [flowRegistry] = await db
+      .select()
+      .from(selectorRegistries)
+      .where(eq(selectorRegistries.environmentId, environmentId))
+      .orderBy(desc(selectorRegistries.crawledAt))
+      .limit(1);
 
-      if (!registry) {
-        return reply.status(400).send({
-          error: "No selector registry found for this environment. Run a crawl first.",
-        });
-      }
-      entries = registry.entries as SelectorEntry[];
+    if (!mobile && !flowRegistry) {
+      return reply.status(400).send({
+        error: "No selector registry found for this environment. Run a crawl first.",
+      });
     }
+
+    const flowEntries = (flowRegistry?.entries ?? []) as SelectorEntry[] | MobileSelectorEntry[];
 
     try {
       const result = mobile
-        ? await generateMaestroSteps(refinedTestCase.trim(), flowName.trim())
-        : await generateSteps(refinedTestCase.trim(), entries, flowName.trim());
+        ? await generateMaestroSteps(refinedTestCase.trim(), flowName.trim(), flowEntries as MobileSelectorEntry[])
+        : await generateSteps(refinedTestCase.trim(), flowEntries as SelectorEntry[], flowName.trim());
 
       // Clear run history (cascades to stepResults) so the flowSteps FK is safe to drop
       await db.delete(testRuns).where(eq(testRuns.flowId, flowId));

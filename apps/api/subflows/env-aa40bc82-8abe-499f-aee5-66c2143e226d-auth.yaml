@@ -3,13 +3,13 @@ appId: "com.corpusvision.bakbak.dev"
 ---
 - tapOn:
     text: "Phone"
-- clearText
+- eraseText: 50
 - inputText: "${PHONE}"
 - tapOn:
     text: "Get OTP"
 - tapOn:
     text: "OTP"
-- clearText
+- eraseText: 50
 - inputText: "${OTP}"
 - tapOn:
     text: "Submit"

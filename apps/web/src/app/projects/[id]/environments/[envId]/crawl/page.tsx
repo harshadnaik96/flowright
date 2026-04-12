@@ -9,7 +9,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import { api } from "@/lib/api"
-import type { Environment, SelectorRegistry } from "@flowright/shared"
+import type { Environment, SelectorRegistry, MobileSelectorEntry } from "@flowright/shared"
 
 export default function CrawlPage({
   params,
@@ -19,15 +19,20 @@ export default function CrawlPage({
   const { id: projectId, envId } = use(params)
 
   const [env, setEnv] = useState<Environment | null>(null)
+  const [isMobile, setIsMobile] = useState(false)
   const [registry, setRegistry] = useState<SelectorRegistry | null>(null)
   const [isCrawling, setIsCrawling] = useState(false)
   const [crawlResult, setCrawlResult] = useState<{ entriesFound: number; crawledAt: string } | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    api.environments.get(projectId, envId)
-      .then((data) => {
-        setEnv(data)
+    Promise.all([
+      api.environments.get(projectId, envId),
+      api.projects.get(projectId),
+    ])
+      .then(([envData, projectData]) => {
+        setEnv(envData)
+        setIsMobile(projectData.platform === "android" || projectData.platform === "ios")
       })
       .catch(() => setError("Failed to load environment"))
 
@@ -100,8 +105,9 @@ export default function CrawlPage({
           <div>
             <p className="text-sm font-medium">Run crawl</p>
             <p className="text-sm text-muted-foreground mt-0.5">
-              Flowright will launch a headless browser, log in using your environment&apos;s auth config,
-              and extract all interactive elements from every page.
+              {isMobile
+                ? "Open your app on the connected device to the home screen, then press Crawl. Flowright will capture the current screen and navigate through tabs to build an element registry."
+                : "Flowright will launch a headless browser, log in using your environment's auth config, and extract all interactive elements from every page."}
             </p>
           </div>
 
@@ -132,20 +138,26 @@ export default function CrawlPage({
             <div>
               <p className="text-sm font-medium mb-3">Registry preview</p>
               <div className="space-y-1.5 max-h-96 overflow-y-auto pr-1">
-                {registry.entries.slice(0, 50).map((entry, i) => (
-                  <div
-                    key={i}
-                    className="flex items-center gap-3 rounded-md border bg-card px-3 py-2 text-xs"
-                  >
-                    <Badge variant="outline" className="text-xs shrink-0 capitalize">
-                      {entry.elementType}
-                    </Badge>
-                    <span className="font-medium truncate flex-1">{entry.label}</span>
-                    <code className="text-muted-foreground font-mono truncate max-w-48">
-                      {entry.selector}
-                    </code>
-                  </div>
-                ))}
+                {registry.entries.slice(0, 50).map((entry, i) => {
+                  const mobileEntry = entry as unknown as MobileSelectorEntry
+                  const isMobileEntry = !("selector" in entry)
+                  return (
+                    <div
+                      key={i}
+                      className="flex items-center gap-3 rounded-md border bg-card px-3 py-2 text-xs"
+                    >
+                      <Badge variant="outline" className="text-xs shrink-0 capitalize">
+                        {isMobileEntry ? (mobileEntry.screen ?? "app") : entry.elementType}
+                      </Badge>
+                      <span className="font-medium truncate flex-1">{entry.label}</span>
+                      <code className="text-muted-foreground font-mono truncate max-w-48">
+                        {isMobileEntry
+                          ? (mobileEntry.accessibilityId ?? mobileEntry.resourceId ?? mobileEntry.text ?? "")
+                          : entry.selector}
+                      </code>
+                    </div>
+                  )
+                })}
                 {registry.entries.length > 50 && (
                   <p className="text-xs text-muted-foreground text-center py-2">
                     + {registry.entries.length - 50} more entries

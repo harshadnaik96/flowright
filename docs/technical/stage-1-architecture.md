@@ -1,3 +1,7 @@
+---
+title: "Architecture Overview"
+---
+
 # Stage 1 — Technical Reference: Project Architecture
 
 ## Overview

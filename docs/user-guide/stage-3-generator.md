@@ -1,3 +1,7 @@
+---
+title: "Generating Flows"
+---
+
 # Flowright — Writing & Generating Test Flows
 
 ## Overview
@@ -146,6 +150,10 @@ Mobile test cases use the same plain-English style. A few things to keep in mind
 | "Enter the phone number in the phone field" | "Type the number" |
 
 Flowright generates Maestro YAML steps from your plain English — the more specific the description, the more accurate the generated step.
+
+**Authentication is automatic** — do not include login, OTP, or MPIN steps in your test case. The app is already logged in when your test steps begin. If you're testing from an already-logged-in state (e.g. running again after the app is open), check **Skip authentication** on the run setup page.
+
+**Input fields on deep screens** (e.g. Edit Profile, forms inside settings) are tapped by screen position since the crawler doesn't reach those screens automatically. Generated steps will use coordinates like `tapOn: { point: "50%,70%" }` for those fields — if a field is in the wrong position, use the step editor to adjust the percentage.
 
 ---
 

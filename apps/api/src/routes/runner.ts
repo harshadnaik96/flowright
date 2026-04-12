@@ -26,9 +26,10 @@ export async function runnerRoutes(app: FastifyInstance) {
       environmentId: string;
       runtimeVariables: Record<string, string>;
       agentId?: string;
+      skipAuth?: boolean;
     };
   }>("/", async (req, reply) => {
-    const { flowId, environmentId, runtimeVariables = {}, agentId } = req.body;
+    const { flowId, environmentId, runtimeVariables = {}, agentId, skipAuth = false } = req.body;
 
     if (!flowId) return reply.status(400).send({ error: "flowId is required" });
     if (!environmentId) return reply.status(400).send({ error: "environmentId is required" });
@@ -76,7 +77,8 @@ export async function runnerRoutes(app: FastifyInstance) {
         .orderBy(flowSteps.order);
 
       const auth = decryptAuth(env.auth as EnvironmentAuth);
-      const flowYaml = buildFlowYamlForAgent(env.baseUrl, steps.map((s) => s.command), env.authSubflowPath);
+      const authSubflowPath = skipAuth ? null : env.authSubflowPath;
+      const flowYaml = buildFlowYamlForAgent(env.baseUrl, steps.map((s) => s.command), authSubflowPath);
 
       const envVars: Record<string, string> = {};
       if (auth.phoneNumber) envVars["PHONE_NUMBER"] = auth.phoneNumber;
@@ -89,7 +91,7 @@ export async function runnerRoutes(app: FastifyInstance) {
       await db.update(testRuns).set({ status: "running" }).where(eq(testRuns.id, run.id));
 
       const stepOrders = steps.map((s) => s.order);
-      const authStepCount = estimateSubflowStepCount(auth);
+      const authStepCount = skipAuth ? 0 : estimateSubflowStepCount(auth);
       agentRegistry.sendJob(agent.tokenId, { runId: run.id, flowYaml, envVars, stepOrders, authStepCount });
     } else {
       // Web runs execute directly on the server

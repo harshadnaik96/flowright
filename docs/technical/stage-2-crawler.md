@@ -1,3 +1,7 @@
+---
+title: "Crawler"
+---
+
 # Stage 2 — Technical Reference: Selector Registry & Crawler
 
 ## Overview
@@ -145,17 +149,40 @@ Duplicates across pages are removed. Final registry is stored as `SelectorEntry[
 
 ## Mobile Crawler (`crawler-maestro.ts`)
 
-Runs `maestro hierarchy` via child process, parses the accessibility tree output, and builds `MobileSelectorEntry[]`.
+Runs `maestro hierarchy` via child process, parses the accessibility tree output, and builds `MobileSelectorEntry[]`. Performs a **multi-screen crawl**: captures the home screen, identifies navigation elements by keyword, taps each nav element using a temp Maestro YAML flow, captures each resulting screen, then navigates back — aggregating elements across all visited screens.
 
 ```
-maestro hierarchy  →  stdout XML/JSON  →  parse  →  MobileSelectorEntry[]
+captureScreen("Home")
+  → find nav candidates (NAV_KEYWORDS match)
+  → for each: writeTempFlow → maestro test → captureScreen → back
+  → deduplicate all entries
+  → MobileSelectorEntry[]
 ```
 
 Each `MobileSelectorEntry` captures:
-- `text` — visible text label
-- `accessibilityId` — content-desc attribute
+- `text` — visible text label (from `text`, `label`, `value`, `title`, `semanticsLabel`, `hintText`, or `hint`)
+- `accessibilityId` — content-desc / accessibilityLabel / Semantics.identifier
 - `resourceId` — resource-id attribute (Android)
 - `bounds` — element bounding box
+- `screen` — which screen the element was captured from (e.g. `"Home"`, `"Payments"`)
+
+### Flutter / React Native compatibility
+
+`HierarchyNode` handles field names across all frameworks:
+
+| Framework | Text fields | ID fields |
+|-----------|------------|-----------|
+| Native Android | `text`, `hintText` | `resourceId`, `accessibilityText` |
+| Native iOS | `text`, `hintText` | `accessibilityText` |
+| Flutter | `label`, `value`, `title`, `semanticsLabel`, `hint` | `identifier` |
+| React Native | `text`, `accessibilityText` | `accessibilityText` |
+| Generic | `attributes.text`, `attributes.content-desc`, `attributes.resource-id` | — |
+
+All nodes with any stable identifier are included (not just those with `clickable === true`).
+
+### Temp flow helpers
+
+Navigation during the crawl is done by writing minimal YAML files to `os.tmpdir()` and running `maestro test <file>`. Files are cleaned up after each screen visit. The app must already be open on the device before crawling — no auto-launch is attempted.
 
 ### Mobile Auth Subflow Generation
 

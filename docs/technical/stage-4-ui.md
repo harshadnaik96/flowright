@@ -1,3 +1,7 @@
+---
+title: "User Interface"
+---
+
 # Stage 4 — Technical Reference: Review UI
 
 ## Overview

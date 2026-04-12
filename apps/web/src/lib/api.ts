@@ -226,7 +226,7 @@ export const api = {
   runner: {
     agents: () =>
       request<Array<{ tokenId: string; name: string; connectedAt: string }>>("/runner/agents"),
-    start: (body: { flowId: string; environmentId: string; runtimeVariables: Record<string, string>; agentId?: string }) =>
+    start: (body: { flowId: string; environmentId: string; runtimeVariables: Record<string, string>; agentId?: string; skipAuth?: boolean }) =>
       request<{ runId: string }>("/runner", { method: "POST", body: JSON.stringify(body) }),
     list: (flowId: string) =>
       request<TestRun[]>(`/runner?flowId=${flowId}`),

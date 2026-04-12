@@ -1,0 +1,203 @@
+---
+title: "Current State & Roadmap"
+---
+
+# Flowright — Current State, Challenges & Roadmap
+
+> Last updated: 2026-04-12
+
+---
+
+## What Is Flowright?
+
+Flowright is an AI-driven test automation platform that converts a tester's plain-English test description into executable test flows — for both **web** (via Playwright) and **mobile** (Android/iOS via Maestro CLI) — without writing a single line of code.
+
+**Core loop:**
+```
+Write test case in plain English
+  → AI refines it into clean, numbered steps
+  → AI generates automation code using real element data from your app
+  → Tester reviews, fixes individual steps if needed, approves
+  → Run against any device or environment in real time
+```
+
+---
+
+## What's Done (as of v0.2)
+
+### Core Infrastructure
+- [x] Project + environment CRUD
+- [x] 5 auth types: None, Phone+OTP+MPIN, Email+Password, SSO, Custom Script
+- [x] AES-256-GCM encryption for all credentials at rest
+- [x] PostgreSQL schema with Drizzle ORM
+- [x] Fastify API + Next.js 15 frontend
+
+### Web Pipeline (Playwright)
+- [x] Playwright headless crawler — discovers buttons, inputs, links, selects
+- [x] Pre-auth + post-auth crawl (captures login form AND post-login pages)
+- [x] Gemini generation: raw text → refined NL → Cypress-like steps
+- [x] Custom Cypress-to-Playwright adapter (runs generated steps without Cypress CLI)
+- [x] SSO storage state injection for SSO environments
+- [x] Per-step screenshots (pass and fail)
+
+### Mobile Pipeline (Maestro)
+- [x] `maestro hierarchy` crawler — multi-screen crawl (taps nav tabs, captures each screen, aggregates)
+- [x] Flutter, React Native, native Android/iOS field name support in the crawler
+- [x] Elements tagged by screen (`screen` field on `MobileSelectorEntry`)
+- [x] Element registry fed to Gemini at generation time (grouped by screen in prompt)
+- [x] Gemini prompt rules:
+  - Buttons/tabs/menus → `tapOn` with exact text from registry
+  - Icon buttons not in registry → `tapOn` with point percentage
+  - Text input fields → always `tapOn` by point + `clearText` + `inputText`
+  - Auth steps excluded (handled by auth subflow)
+- [x] Auth subflow auto-generated and prepended to every flow (Phone+OTP+MPIN / Email+Password)
+- [x] `skipAuth` flag — skips auth subflow for already-logged-in sessions
+- [x] Local agent binary (macOS arm64 / x64, Linux x64) — connects via WebSocket
+- [x] Per-step `takeScreenshot` injected into YAML; screenshots sent to server on failure
+- [x] Multi-agent support + device selector in run UI
+
+### Flow Lifecycle
+- [x] Draft → Approved → Archived
+- [x] Per-step AI regeneration (tester describes correction in plain English)
+- [x] Full flow regeneration
+- [x] Bulk step editor (Monaco Editor, YAML/JS language modes)
+- [x] Inline command edit after a run fails
+
+### Run Experience
+- [x] Real-time WebSocket progress (`step:started`, `step:passed`, `step:failed`, `run:completed`)
+- [x] Race condition fix: step results fetched from DB on `run:completed` (not just from WS stream)
+- [x] Run history (last 8 runs per flow) with one-click Re-run
+- [x] Flow search + status filter on project page
+- [x] Screenshot viewer per step inline in results
+
+---
+
+## Where We Are Now
+
+The mobile pipeline is functional end-to-end on a real Flutter app (`com.corpusvision.bakbak.dev`):
+
+- Crawl discovers elements across Home and all nav-reachable screens
+- Gemini generates correct Maestro YAML using real element text from the registry
+- Flows run on a connected Android emulator via the local agent
+- Screenshots are captured on failure and visible in the UI
+
+**Current validation status:**
+
+| Scenario | Status | Notes |
+|----------|--------|-------|
+| Navigate to Profile tab | ✅ Working | Point-based tap (`90%,92%`) |
+| Tap gear/settings icon | ✅ Working | Point-based tap (`90%,8%`) |
+| Tap named menu item (e.g. Edit Profile) | ✅ Working | Text-based tap from registry |
+| Edit text input field (e.g. Bio) | 🔄 In progress | Point-based tap + clearText + inputText — validating |
+| Assert visible after navigation | ✅ Working | `assertVisible` with exact screen text |
+| Skip auth on re-run | ✅ Working | Checkbox in run setup UI |
+| Multi-screen registry in prompt | ✅ Working | Elements grouped by screen, fed to Gemini |
+
+---
+
+## Active Challenges
+
+### 1. Deep-screen elements are not in the registry
+
+The crawler only reaches screens accessible from the home screen via nav tabs. Screens that require navigating into (Edit Profile, Transaction Detail, Settings sub-screens) are not crawled.
+
+**Impact**: Gemini uses point-based coordinates for elements on these screens. Coordinates are approximate and may be wrong on different device sizes.
+
+**Planned fix**: Deep-screen crawl on demand — tester can manually navigate to a screen and trigger a "partial crawl" to capture just that screen's elements.
+
+---
+
+### 2. Point coordinates are device-size dependent
+
+`tapOn: { point: "50%,70%" }` is a relative percentage, which works across screen sizes in theory. But Gemini's point estimates are just guesses — it has no knowledge of where the Bio field actually sits on the screen.
+
+**Impact**: Generated coordinates may miss the target, especially on forms with many fields stacked vertically.
+
+**Mitigation in place**: `clearText` before `inputText` handles the case where the field was already focused. If the tap misses entirely, the tester can edit the step coordinates manually.
+
+**Planned fix**: Once deep-screen crawl is in, registry has real `bounds` data → use those to compute accurate percentages instead of guessing.
+
+---
+
+### 3. Flutter accessibility coverage depends on app code quality
+
+Flutter renders on a canvas. If the app doesn't use `Semantics` widgets, icon buttons and image buttons have no accessibility label — `maestro hierarchy` returns nothing useful for them.
+
+**Impact**: Icon-only buttons (gear, back arrow, hamburger menu) can only be targeted by coordinates, never by label. If the app layout changes, coordinates break silently.
+
+**Reality**: This is a Flutter app problem, not a Flowright problem. The standard fix is adding `Semantics` to icon buttons in the app source. For apps we don't control, point-based tapping is the only option.
+
+---
+
+### 4. Gemini prompt instability with conflicting rules
+
+As more edge case rules are added to the generation prompt, Gemini sometimes over-applies them (e.g. applying "input field" rules to buttons, or using point for everything after a "NEVER guess text" instruction).
+
+**Impact**: Regressions in previously working steps when the prompt is updated.
+
+**Approach**: Keep rules minimal and unambiguous. Separate element categories clearly (buttons vs inputs). Test prompt changes against a real flow before shipping.
+
+---
+
+### 5. Auth subflow is hardcoded in `auth-subflow.ts`
+
+The current auth subflow generator produces a fixed YAML sequence based on the auth fields (phone, OTP, MPIN). It doesn't know the actual element labels of the login screen.
+
+**Impact**: The auth subflow may fail if the login screen has different button labels or an unusual flow (e.g. phone field is not the first field, OTP timeout requires a retry button).
+
+**Planned fix**: Crawl the login screen (before auth) and feed those selectors into a Gemini-generated auth subflow instead of the hardcoded template.
+
+---
+
+## Near-Term Priorities (v0.3)
+
+| Priority | Item | Why |
+|----------|------|-----|
+| 🔴 High | Deep-screen crawl (manual trigger) | Fixes point-coordinate guessing for forms on inner screens |
+| 🔴 High | Verify Bio update flow end-to-end | Current focus — validates input field tap strategy with real data |
+| 🟡 Medium | Auth subflow from registry | Login screen elements vary per app — hardcoded template breaks for non-standard login flows |
+| 🟡 Medium | Step retry (1–2 retries on timeout before fail) | Timing issues are the #1 cause of flaky mobile runs |
+| 🟡 Medium | User auth + team model | Can't share with a team without login |
+| 🟢 Low | Cloud screenshot storage (S3/R2) | Screenshots live on local disk — lost on server restart |
+| 🟢 Low | Remove debug logging in `parseHierarchyOutput` | Temporary — logs raw Flutter field names to confirm field mapping |
+
+---
+
+## Medium-Term Roadmap (v0.4–v0.5)
+
+1. **Scheduled runs** — cron-based nightly regression per environment
+2. **CI/CD webhook** — `POST /api/run/{flowId}` with API key; integrates with GitHub Actions, GitLab CI
+3. **Test results dashboard** — pass rate over time, flakiness tracking, slowest steps
+4. **Slack / email notifications** — on run failure or suite completion
+5. **Run comparison** — diff results between two runs ("what broke between Tuesday and today?")
+6. **Flow grouping into suites** — run N flows together as one regression suite
+
+---
+
+## Long-Term Vision (v1.0+)
+
+| Feature | Description |
+|---------|-------------|
+| **Self-healing selectors** | When a step fails because an element was renamed, Gemini re-identifies the new element automatically |
+| **AI failure diagnosis** | Instead of "Element not found", get "The Login button was renamed to Sign In" |
+| **Change detection** | Crawler monitors app on a schedule; flags flows that may be affected by UI changes |
+| **Coverage heatmap** | Visual map of which screens/flows have test coverage and which don't |
+| **Natural language reports** | "12 flows ran overnight. 2 failed — the payment flow broke when the OTP screen didn't appear after entering the phone number." |
+
+---
+
+## Decision Log
+
+| Date | Decision | Reason |
+|------|----------|--------|
+| 2026-04-06 | Custom Cypress-to-Playwright adapter instead of real Cypress | No extra binary; trade-off is edge case coverage (shadow DOM, iframes) |
+| 2026-04-06 | Two separate Gemini calls: refine + generate | Refinement produces better NL → better steps |
+| 2026-04-06 | Snapshot registry model (crawl once, reuse) | Faster generation; trade-off is stale selectors on app changes |
+| 2026-04-11 | Screenshots over existing WebSocket (base64) instead of HTTP upload | No new endpoint; acceptable overhead for MVP |
+| 2026-04-11 | Re-run via URL params instead of new API endpoint | Zero backend; user still reviews before confirming |
+| 2026-04-11 | Mobile screenshot only on failure (not every step) | Reduces WS payload; failure screenshots are the most useful for debugging |
+| 2026-04-12 | Multi-screen crawl: auto-navigate nav tabs | Home-only crawl missed most app elements; nav tabs cover ~80% of accessible screens |
+| 2026-04-12 | Input fields always use point-based tapping (not label/placeholder text) | Label text is non-interactive in Flutter/RN; placeholder text is not in registry for deep screens; point is the only reliable fallback |
+| 2026-04-12 | `clearText` before every `inputText` | Fields may have content from previous runs; clearText makes the step idempotent |
+| 2026-04-12 | `skipAuth` flag instead of auto-detecting login state | Simple and explicit; auto-detection would require inspecting app state which is unreliable |
+| 2026-04-12 | Dropped `assertWithAI` / `ai` Maestro commands | These require Maestro Cloud login — adds dependency and complexity for no clear gain at this stage |

@@ -1,3 +1,7 @@
+---
+title: "Getting Started"
+---
+
 # Flowright — Getting Started
 
 ## What is Flowright?

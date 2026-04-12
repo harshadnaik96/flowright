@@ -1,3 +1,7 @@
+---
+title: "Mobile Implementation Plan"
+---
+
 # Implementation Plan: Mobile Testing (Maestro) alongside Web (Playwright)
 
 ## Decision Summary
@@ -284,6 +288,19 @@ Pass `platform` in `CreateProjectRequest`.
 8. ✅ **Frontend platform picker** on project creation
 9. ✅ **Frontend mobile adaptations** (appId field, YAML bulk editor; video player deferred — no backend video endpoint yet)
 10. **End-to-end test** on a real Android emulator
+
+---
+
+## MVP Feature Additions (v0.2)
+
+Implemented after the core mobile pipeline was validated:
+
+| Feature | Status | Details |
+|---------|--------|---------|
+| Mobile screenshots on failure | ✅ | `takeScreenshot` injected per step in YAML; agent reads PNG, sends base64 with `step:failed`; API saves and serves via `/runner/screenshots/` |
+| Device / agent selection | ✅ | `AgentConnection.name` stored; `GET /runner/agents`; optional `agentId` in `POST /runner`; radio selector in run UI |
+| Run history & re-run | ✅ | Flow detail page shows last 8 runs; Re-run link encodes `envId` + `vars` in URL params; run page decodes and pre-fills form |
+| Flow search & filter | ✅ | `FlowsSection` client component with live search + status tabs on project page |
 
 ---
 

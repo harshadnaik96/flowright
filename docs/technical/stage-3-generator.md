@@ -1,3 +1,7 @@
+---
+title: "AI Generator"
+---
+
 # Stage 3 — Technical Reference: LLM Generator
 
 ## Overview
@@ -127,11 +131,41 @@ Only `approved` flows can be executed by the runner.
 
 `generateMaestroSteps()` is the mobile parallel to `generateSteps()`. Key differences in the prompt:
 
-- Role: "You are a Maestro mobile automation engineer"
-- Selector source: accessibility IDs and visible text from `MobileSelectorEntry[]` (not CSS selectors)
-- Output format: Maestro YAML (`tapOn`, `inputText`, `assertVisible`, `swipeDown`, etc.)
+- Role: "You are a Maestro mobile test automation expert"
+- Selector source: `MobileSelectorEntry[]` from the crawl registry, grouped by screen and injected as a readable block
+- Output format: Maestro YAML (`tapOn`, `inputText`, `assertVisible`, `scroll`, etc.)
 - Variable format: `${VARIABLE_NAME}` instead of `Cypress.env('key')`
-- Auth variables: `${PHONE}`, `${OTP}`, `${MPIN}`, `${EMAIL}`, `${PASSWORD}`
+- Auth variables: `${PHONE_NUMBER}`, `${OTP}`, `${MPIN}`, `${EMAIL}`, `${PASSWORD}`
+
+### Registry injection
+
+The registry is formatted as a screen-grouped block and prepended to the prompt:
+
+```
+ELEMENT REGISTRY (captured from live app via maestro hierarchy):
+Screen: Home
+  - text="Dashboard", id="dashboard_tab"
+  - text="Payments"
+Screen: Payments
+  - text="Send Money"
+  ...
+```
+
+Gemini uses this to select exact `tapOn` targets instead of guessing element labels.
+
+### Tap rules
+
+| Element type | Strategy |
+|---|---|
+| Buttons, tabs, menu items, links | `tapOn` with exact text/id from registry |
+| Icon buttons, unlabelled controls | `tapOn` with point percentage (top-right ~`"90%,8%"`, bottom-left ~`"10%,92%"`) |
+| Text input fields | Always `tapOn` with point percentage + `clearText` + `inputText` — never tap by label or placeholder |
+
+Input fields are always point-based because: (1) deep-screen fields are not in the registry (crawl only covers nav-reachable screens), (2) the label above a field (e.g. "Bio") is a non-interactive widget in Flutter/RN, and (3) `clearText` before `inputText` handles pre-existing field content.
+
+### Auth exclusion
+
+Rule 10: auth steps (login, phone entry, OTP, MPIN, password) are excluded from generated steps. The auth subflow is prepended automatically by the runner — generating auth steps would cause double-login.
 
 Output schema per step:
 ```json

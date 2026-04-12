@@ -67,6 +67,7 @@ export interface MobileSelectorEntry {
   accessibilityId?: string;
   resourceId?: string;
   bounds?: string;        // e.g. "[0,100][1080,200]"
+  screen?: string;        // which screen this element was captured from
 }
 
 export interface SelectorRegistry {

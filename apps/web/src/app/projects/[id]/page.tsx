@@ -120,13 +120,11 @@ export default async function ProjectPage({
                           {env.auth?.type ?? "no-auth"}
                         </Badge>
                       </div>
-                      {project.platform === "web" && (
-                        <Link href={`/projects/${id}/environments/${env.id}/crawl`}>
-                          <Button variant="outline" size="sm" className="h-8 rounded-lg font-bold border-indigo-100 text-indigo-600 hover:bg-indigo-50 hover:border-indigo-200">
-                            <RefreshCw className="mr-1.5 h-3.5 w-3.5" /> Crawl
-                          </Button>
-                        </Link>
-                      )}
+                      <Link href={`/projects/${id}/environments/${env.id}/crawl`}>
+                        <Button variant="outline" size="sm" className="h-8 rounded-lg font-bold border-indigo-100 text-indigo-600 hover:bg-indigo-50 hover:border-indigo-200">
+                          <RefreshCw className="mr-1.5 h-3.5 w-3.5" /> Crawl
+                        </Button>
+                      </Link>
                     </div>
                   </CardContent>
                 </Card>

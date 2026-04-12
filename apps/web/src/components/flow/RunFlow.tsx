@@ -372,6 +372,7 @@ export function RunFlow({
     initialVarValues ?? Object.fromEntries(variables.map((v) => [v.key, v.defaultValue ?? ""]))
   );
   const [agentId, setAgentId]     = useState(agents?.[0]?.tokenId ?? "");
+  const [skipAuth, setSkipAuth]   = useState(false);
 
   // Persist command edits across resets
   const savedEdits = useRef<Record<string, string>>({});
@@ -453,9 +454,33 @@ export function RunFlow({
 
       if (event.type === "run:completed") {
         setOverallStatus(event.payload.status as "passed" | "failed");
-        setSteps((prev) =>
-          prev.map((s) => (s.status === "pending" ? { ...s, status: "skipped" } : s))
-        );
+        if (event.payload.errorMessage) setErrorMsg(event.payload.errorMessage);
+
+        // Fetch actual step results from the server to fill in any steps whose
+        // events arrived before the WebSocket connection was established.
+        const runId = event.runId;
+        api.runner.get(runId).then((run) => {
+          setSteps((prev) =>
+            prev.map((s) => {
+              const result = run.stepResults.find((r) => r.order === s.order);
+              if (result) {
+                return {
+                  ...s,
+                  status: result.status,
+                  errorMessage: result.errorMessage ?? undefined,
+                  screenshotPath: result.screenshotPath ?? undefined,
+                };
+              }
+              return s.status === "pending" ? { ...s, status: "skipped" } : s;
+            })
+          );
+        }).catch(() => {
+          // Fallback: mark remaining pending as skipped
+          setSteps((prev) =>
+            prev.map((s) => (s.status === "pending" ? { ...s, status: "skipped" } : s))
+          );
+        });
+
         setPageState("done");
         ws.close();
       }
@@ -489,6 +514,7 @@ export function RunFlow({
         environmentId: envId,
         runtimeVariables: varValues,
         ...(isMobile && agentId ? { agentId } : {}),
+        ...(isMobile && skipAuth ? { skipAuth: true } : {}),
       });
       runIdRef.current = runId;
       connectWs(runId);
@@ -585,6 +611,24 @@ export function RunFlow({
 
         {isMobile && <AgentStatusBanner />}
 
+        {isMobile && (
+          <>
+            <Separator />
+            <label className="flex items-center gap-3 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={skipAuth}
+                onChange={(e) => setSkipAuth(e.target.checked)}
+                className="accent-primary h-4 w-4"
+              />
+              <div>
+                <p className="text-sm font-medium">Skip authentication</p>
+                <p className="text-xs text-muted-foreground">App is already logged in — don&apos;t run the auth subflow</p>
+              </div>
+            </label>
+          </>
+        )}
+
         {errorMsg && (
           <p className="text-sm text-destructive flex items-center gap-1.5">
             <AlertTriangle className="h-4 w-4" /> {errorMsg}
@@ -618,22 +662,34 @@ export function RunFlow({
           ? "border-green-500/30 bg-green-500/5"
           : "border-destructive/30 bg-destructive/5"
         }>
-          <CardContent className="py-4 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              {overallStatus === "passed" ? (
-                <CheckCircle2 className="h-5 w-5 text-green-500" />
-              ) : (
-                <XCircle className="h-5 w-5 text-destructive" />
-              )}
-              <span className="font-medium text-sm">
-                {overallStatus === "passed" ? "All steps passed" :
-                 overallStatus === "failed" ? "Run failed" : "Run error"}
-              </span>
-              {errorMsg && <span className="text-xs text-muted-foreground ml-2">{errorMsg}</span>}
+          <CardContent className="py-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                {overallStatus === "passed" ? (
+                  <CheckCircle2 className="h-5 w-5 text-green-500" />
+                ) : (
+                  <XCircle className="h-5 w-5 text-destructive" />
+                )}
+                <span className="font-medium text-sm">
+                  {overallStatus === "passed" ? "All steps passed" :
+                   overallStatus === "failed" ? "Run failed" : "Run error"}
+                </span>
+              </div>
+              <Button variant="outline" size="sm" onClick={handleRunAgain}>
+                Run Again
+              </Button>
             </div>
-            <Button variant="outline" size="sm" onClick={handleRunAgain}>
-              Run Again
-            </Button>
+            {errorMsg && (
+              <div className="rounded-md border border-border bg-muted overflow-hidden text-xs font-mono">
+                <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-border">
+                  <Terminal className="h-3 w-3 text-muted-foreground" />
+                  <span className="text-muted-foreground text-[10px] tracking-wide uppercase">maestro output</span>
+                </div>
+                <pre className="p-3 text-foreground whitespace-pre-wrap break-all leading-relaxed max-h-48 overflow-y-auto">
+                  {errorMsg}
+                </pre>
+              </div>
+            )}
           </CardContent>
         </Card>
       )}

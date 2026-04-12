@@ -1,3 +1,7 @@
+---
+title: "Crawling Your App"
+---
+
 # Flowright — Setting Up Your Project & Crawling Your App
 
 ## What is a Crawl?
@@ -103,12 +107,12 @@ The crawler will visit each of these after logging in.
 3. You'll see: **"247 elements found"** with the crawl timestamp
 
 **Mobile:**
-1. Open your app on the connected device or emulator and navigate to the screen(s) you want to test
+1. Open your app on the connected device or emulator and navigate to the **home screen** (post-login)
 2. Click **Crawl** on your environment card
-3. Flowright runs `maestro hierarchy` against the device and reads all visible elements
-4. You'll see the element count and crawl timestamp
+3. Flowright runs `maestro hierarchy` to read the home screen, then automatically taps through navigation tabs (Payments, Profile, Settings, etc.) to capture elements from each screen, then returns to home
+4. You'll see the total element count and crawl timestamp
 
-> For mobile, the crawl reads the **currently visible screen only**. To capture elements from multiple screens, navigate through your app manually and run separate crawls — or navigate to the most representative screen before crawling.
+> The crawler auto-navigates common tabs and menus. You don't need to navigate manually — just have the home screen visible and let the crawl do the rest. Deep screens (e.g. Edit Profile, Transaction Details) are not crawled automatically; their elements are handled at generation time using screen coordinates.
 
 Your app is now indexed and ready for test generation.
 
@@ -122,11 +126,12 @@ Your app is now indexed and ready for test generation.
 
 Both sets are merged into a single registry.
 
-**Mobile:** The crawler captures the accessibility tree from the current screen:
-- Visible text labels
-- Accessibility IDs (content-desc)
+**Mobile:** The crawler captures the accessibility tree across multiple screens:
+- Visible text labels (from native Android, iOS, Flutter, and React Native fields)
+- Accessibility IDs (content-desc / accessibilityLabel / Semantics.identifier)
 - Resource IDs (Android)
 - Element bounds
+- Screen name — each element is tagged with which screen it came from
 
 ---
 

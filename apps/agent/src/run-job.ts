@@ -158,7 +158,12 @@ export async function runJob(ws: WebSocket, job: AgentJob): Promise<void> {
       });
     });
 
-    send(ws, { type: "run:completed", runId, status: overallStatus });
+    send(ws, {
+      type: "run:completed",
+      runId,
+      status: overallStatus,
+      ...(stderrAccum.trim() ? { errorMessage: stderrAccum.trim().slice(-3000) } : {}),
+    });
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : "Agent run failed";
     send(ws, { type: "run:error", runId, errorMessage });

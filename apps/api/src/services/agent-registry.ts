@@ -188,12 +188,13 @@ async function handleAgentMessage(raw: string): Promise<void> {
 
   if (msg.type === "run:completed") {
     const status = msg.status as RunStatus;
+    const errorMessage = msg.errorMessage as string | undefined;
     await _db
       .update(testRuns)
       .set({ status, completedAt: new Date() })
       .where(eq(testRuns.id, runId));
 
-    broadcast(runId, { type: "run:completed", runId, payload: { status } });
+    broadcast(runId, { type: "run:completed", runId, payload: { status, errorMessage } });
   }
 
   if (msg.type === "run:error") {

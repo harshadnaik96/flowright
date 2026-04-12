@@ -1,3 +1,7 @@
+---
+title: "Test Runner"
+---
+
 # Stage 5 — Technical Reference: Runner + Results
 
 ## Overview
@@ -43,6 +47,7 @@ if (project.platform === 'web') {
 | Method | Path | Description |
 |--------|------|-------------|
 | `POST` | `/runner` | Create run + start async execution |
+| `GET` | `/runner/agents` | List currently connected local agents |
 | `GET` | `/runner?flowId=` | List runs for a flow |
 | `GET` | `/runner/:runId` | Get run with `stepResults[]` |
 | `GET` | `/runner/ws/:runId` | WebSocket — live progress stream |
@@ -53,7 +58,9 @@ if (project.platform === 'web') {
 {
   "flowId": "uuid",
   "environmentId": "uuid",
-  "runtimeVariables": { "phone_number": "9999999999" }
+  "runtimeVariables": { "PHONE_NUMBER": "9999999999" },
+  "agentId": "token-uuid",  // optional — mobile only; omit to use first available agent
+  "skipAuth": false         // optional — if true, auth subflow is not prepended (mobile only)
 }
 ```
 
@@ -62,6 +69,14 @@ if (project.platform === 'web') {
 { "runId": "uuid" }
 ```
 Returns immediately. Execution runs asynchronously. Connect to WebSocket before or right after.
+
+### GET /runner/agents — Response
+```json
+[
+  { "tokenId": "uuid", "name": "Harshad's MacBook", "connectedAt": "2026-04-11T..." }
+]
+```
+Returns only currently connected agents (not all tokens). Use `tokenId` as `agentId` in `POST /runner`.
 
 ---
 
@@ -97,31 +112,49 @@ startRun(runId):
 
 ---
 
-## Mobile Runner (`runner-maestro.ts`)
+## Mobile Runner — Agent Mode
 
-`startMobileRun(runId)` handles mobile flows:
+Mobile runs always go through the local agent binary (`flowright-agent`):
 
 ```
-startMobileRun(runId):
-  1. Load run + steps + environment from DB
-  2. Decrypt environment auth
-  3. Write all step commands to a temp Maestro YAML file
-     (prepend runFlow: auth subflow if auth_subflow_path set)
-  4. spawn: maestro test <file.yaml> --env KEY=VALUE
-  5. Parse stdout line-by-line:
-     ✅  Tap on "Login"   → step:passed
-     ❌  Assert visible…  → step:failed
-  6. Broadcast WS events matching the web runner event schema
-  7. On process close → mark run completed / failed
+POST /runner (mobile)
+  → Insert testRuns row (status: pending)
+  → buildFlowYamlForAgent() — generates Maestro YAML with injected takeScreenshot commands
+  → agentRegistry.sendJob(tokenId, { runId, flowYaml, envVars, stepOrders, authStepCount })
+  → return { runId }
+
+Agent receives run:job over WebSocket:
+  1. Resolve __RUN_DIR__ placeholder in YAML → actual tmpdir path
+  2. Write resolved YAML to disk
+  3. spawn: maestro test --env KEY=VAL <flow.yaml>
+  4. Parse stdout line-by-line in pairs:
+       User step result (✅/❌) → buffer event
+       takeScreenshot result   → read PNG file (if failed), attach base64, send buffered event
+  5. After all steps → send run:completed
+
+Agent → API (over WebSocket):
+  { type: "step:passed"|"step:failed", runId, stepOrder, errorMessage?, screenshotData? }
+  { type: "run:completed", runId, status }
+
+API agent-registry:
+  → Save screenshotData (base64 PNG) to /tmp/flowright-runs/{runId}/step-{order}.png
+  → Insert stepResult with screenshotPath
+  → Broadcast WsEvent (with screenshotPath) to browser clients
 ```
 
-Maestro stdout patterns parsed:
-```
-✅  <step description>   → step:passed
-❌  <step description>   → step:failed
-```
+### Screenshot injection
 
-The same `WsEvent` schema is used for both web and mobile runs. The frontend `RunFlow.tsx` component handles both without platform-specific branching.
+`buildFlowYamlForAgent` appends `- takeScreenshot: __RUN_DIR__/step-N.png` after every user step. The agent replaces `__RUN_DIR__` with its real tmpdir at runtime.
+
+Screenshots are only sent to the server for **failed** steps (to minimise WebSocket payload size). For passed steps the screenshot file is captured locally but discarded.
+
+### `authStepCount`
+
+When an auth subflow is configured, the Maestro auth preamble emits its own ✅/❌ lines before the user steps. `authStepCount` estimates how many of those lines to skip. Screenshots are NOT injected into the auth subflow, so the count is unchanged.
+
+### Direct server-side mobile runner
+
+`startMobileRun(runId)` in `runner-maestro.ts` is an alternative path for running Maestro directly on the API server (when Maestro is installed server-side). It uses the same Maestro YAML format but does **not** inject screenshots. This path is not used in the normal agent-based flow.
 
 ---
 
@@ -189,7 +222,9 @@ Multiple clients can connect to the same `runId` simultaneously. The server fans
 - `screenshotPath` in DB/events: `"{runId}/step-{order}.png"` (relative)
 - Full URL: `GET /runner/screenshots/{runId}/step-{order}.png`
 
-Screenshots are taken after each step (pass or fail). If the screenshot call itself fails, the step result is still recorded — screenshot failure is non-fatal.
+**Web**: screenshots captured by Playwright after every step (pass or fail).
+
+**Mobile**: screenshots captured by Maestro's `takeScreenshot` command, but only sent to the server and stored for **failed** steps. The agent reads the file synchronously (blocking) after seeing the screenshot result line in Maestro stdout, then base64-encodes it and sends it with the `step:failed` event. Screenshot failure is non-fatal — if the file is not readable, the step result is still recorded.
 
 ---
 
@@ -226,18 +261,43 @@ Screenshots are taken after each step (pass or fail). If the screenshot call its
 
 Route: `/projects/[id]/flows/[flowId]/run`
 
-The server component fetches the flow + environments and passes them to `<RunFlow>`. All interactivity is in the client component.
+The server component fetches flow + environments + connected agents and passes them to `<RunFlow>`. All interactivity is in the client component.
 
 ### RunFlow state machine
 
 ```
-setup    → user fills variables + picks environment
+setup    → user fills variables, picks environment (+ agent for mobile)
 starting → POST /runner fires
 running  → WS connected, steps update live
 done     → final banner + screenshots revealed
 ```
 
 The step list is rendered throughout. In `running` state, steps show spinners → checkmarks/Xs as WS events arrive. In `done` state, each step exposes a "View screenshot" toggle.
+
+### Agent selector (mobile only)
+
+For mobile flows, `GET /runner/agents` is fetched server-side at page load and passed to `RunFlow` as the `agents` prop. If more than one agent is connected, a radio-button selector appears in the setup form. The selected `agentId` is sent with `POST /runner` to target a specific device.
+
+### Re-run with pre-filled config
+
+The run page accepts two optional query parameters:
+- `envId` — pre-select a specific environment
+- `vars` — base64-encoded JSON of runtime variable values
+
+These are decoded server-side and passed as `initialEnvId` / `initialVarValues` to `RunFlow`, which uses them as default state. This powers the Re-run button in the run history section.
+
+## Run History
+
+Route: `/projects/[id]/flows/[flowId]` (flow detail page)
+
+The flow detail page now fetches the last 8 runs for the flow (alongside environments) and renders a **Run History** section showing:
+- Status icon
+- Environment name
+- Start timestamp
+- Status badge
+- **Re-run** link → `/run?envId={env}&vars={base64vars}`
+
+Re-run links are only shown when the flow status is `approved`.
 
 ---
 
@@ -276,8 +336,24 @@ const handleCommandSaved = (stepId: string, newCommand: string) => {
 
 ---
 
+## Flow Search & Filter — Frontend
+
+Route: `/projects/[id]` (project page)
+
+The project page passes `flows[]` to `<FlowsSection>` (client component). All filtering is client-side:
+
+- **Search input** — case-insensitive match on `flow.name` and `flow.description`
+- **Status tabs** — All / Approved / Draft / Archived
+
+Both filters compose (search + status applied together). The header shows `(filtered/total)` count.
+
+Component: `apps/web/src/app/projects/[id]/FlowsSection.tsx`
+
+---
+
 ## Notes
 
 - Runs are fire-and-forget: the HTTP handler returns after inserting the DB row. Long-running flows do not block the HTTP response.
 - If the server restarts mid-run, the run stays in `running` status in DB — no auto-recovery in Stage 5.
 - Screenshots are stored on local disk (not object storage). For production, `SCREENSHOT_DIR` should point to a persistent volume mount.
+- Mobile screenshot PNGs are transmitted as base64 over WebSocket. At typical mobile screenshot sizes (100–500 KB), this adds ~130–660 KB to the WS message. Acceptable for MVP; consider a direct HTTP upload endpoint for large screens or high step counts.

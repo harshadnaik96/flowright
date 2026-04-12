@@ -1,3 +1,7 @@
+---
+title: "Maestro Integration R&D"
+---
+
 # R&D: Maestro CLI — Analysis & Integration Strategy
 
 ## What Is Maestro CLI?
