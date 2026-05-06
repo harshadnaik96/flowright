@@ -139,9 +139,9 @@ export async function generatorRoutes(app: FastifyInstance) {
 
   app.post<{
     Params: { flowId: string };
-    Body: RegenerateStepRequest & { environmentId: string; projectId: string };
+    Body: RegenerateStepRequest & { environmentId: string; projectId: string; errorMessage?: string };
   }>("/regenerate-step/:flowId", async (req, reply) => {
-    const { stepIndex, instruction, currentSteps, environmentId, projectId } = req.body;
+    const { stepIndex, instruction, currentSteps, environmentId, projectId, errorMessage } = req.body;
 
     if (stepIndex === undefined || stepIndex < 0)
       return reply.status(400).send({ error: "stepIndex is required" });
@@ -176,6 +176,7 @@ export async function generatorRoutes(app: FastifyInstance) {
         instruction.trim(),
         currentSteps as Parameters<typeof regenerateStep>[2],
         registryEntries as SelectorEntry[],
+        errorMessage,
       );
       return { step: fixed };
     } catch (err: unknown) {

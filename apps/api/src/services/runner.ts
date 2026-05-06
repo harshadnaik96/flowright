@@ -4,9 +4,10 @@ import { testRuns, stepResults, flows, flowSteps, environments } from "../db/sch
 import { eq } from "drizzle-orm";
 import { decryptAuth } from "./encryption";
 import type { EnvironmentAuth, RunStatus } from "@flowright/shared";
-import { mkdir, readFile } from "fs/promises";
+import { readFile } from "fs/promises";
 import { join } from "path";
 import { addRunListener, broadcast } from "./ws-broadcast";
+import { uploadScreenshot } from "./storage";
 
 export { addRunListener };
 
@@ -405,6 +406,10 @@ export async function startRun(runId: string): Promise<void> {
     const [run] = await db.select().from(testRuns).where(eq(testRuns.id, runId));
     if (!run) throw new Error("Run not found");
 
+    const [flow] = await db.select().from(flows).where(eq(flows.id, run.flowId));
+    if (!flow) throw new Error("Flow not found");
+    const maxAttempts = Math.max(1, (flow.maxRetries ?? 2) + 1);
+
     const steps = await db
       .select()
       .from(flowSteps)
@@ -426,9 +431,6 @@ export async function startRun(runId: string): Promise<void> {
       ...(auth.email ? { env_email: auth.email, email: auth.email } : {}),
       ...(auth.password ? { env_password: auth.password, password: auth.password } : {}),
     };
-
-    const screenshotDir = join(SCREENSHOTS_BASE, runId);
-    await mkdir(screenshotDir, { recursive: true });
 
     await db.update(testRuns).set({ status: "running" }).where(eq(testRuns.id, runId));
 
@@ -464,21 +466,42 @@ export async function startRun(runId: string): Promise<void> {
       let errorMessage: string | undefined;
       let warningMessage: string | undefined;
       let screenshotRelPath: string | undefined;
+      let attempts = 0;
 
-      try {
-        const result = await executeStep(page, step.command, envVars, env.baseUrl);
-        warningMessage = result.warningMessage;
-      } catch (err) {
-        status = "failed";
-        const raw = err instanceof Error ? err.message : String(err);
-        errorMessage = humanizeError(raw);
-        overallStatus = "failed";
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        attempts = attempt;
+        try {
+          const result = await executeStep(page, step.command, envVars, env.baseUrl);
+          warningMessage = result.warningMessage;
+          status = "passed";
+          errorMessage = undefined;
+          break;
+        } catch (err) {
+          const raw = err instanceof Error ? err.message : String(err);
+          errorMessage = humanizeError(raw);
+          status = "failed";
+          if (attempt < maxAttempts) {
+            broadcast(runId, {
+              type: "step:retry",
+              runId,
+              payload: {
+                stepOrder: step.order,
+                plainEnglish: step.plainEnglish,
+                attempt,
+                maxAttempts,
+                errorMessage,
+              },
+            });
+            await new Promise((r) => setTimeout(r, 500));
+          }
+        }
       }
+      if (status === "failed") overallStatus = "failed";
 
       try {
         const filename = `step-${step.order}.png`;
-        await page.screenshot({ path: join(screenshotDir, filename), fullPage: false });
-        screenshotRelPath = `${runId}/${filename}`;
+        const buffer = await page.screenshot({ fullPage: false });
+        screenshotRelPath = await uploadScreenshot(runId, filename, buffer);
       } catch {
         // screenshot failure is non-fatal
       }
@@ -495,6 +518,7 @@ export async function startRun(runId: string): Promise<void> {
         errorMessage: errorMessage ?? null,
         warningMessage: warningMessage ?? null,
         durationMs,
+        attempts,
       });
 
       broadcast(runId, {
@@ -506,6 +530,8 @@ export async function startRun(runId: string): Promise<void> {
           screenshotPath: screenshotRelPath,
           errorMessage,
           warningMessage,
+          attempt: attempts,
+          maxAttempts,
         },
       });
 

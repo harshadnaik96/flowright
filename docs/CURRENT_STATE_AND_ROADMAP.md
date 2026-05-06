@@ -39,6 +39,8 @@ Write test case in plain English
 - [x] Custom Cypress-to-Playwright adapter (runs generated steps without Cypress CLI)
 - [x] SSO storage state injection for SSO environments
 - [x] Per-step screenshots (pass and fail)
+- [x] Cloud screenshot storage via Supabase Storage (with local FS fallback when env vars are absent)
+- [x] Step retry loop (configurable per flow via `flows.maxRetries`, default 2 retries / 3 attempts) with `step:retry` WS event and `attempts` persisted on `stepResults`
 
 ### Mobile Pipeline (Maestro)
 - [x] `maestro hierarchy` crawler — multi-screen crawl (taps nav tabs, captures each screen, aggregates)
@@ -64,7 +66,7 @@ Write test case in plain English
 - [x] Inline command edit after a run fails
 
 ### Run Experience
-- [x] Real-time WebSocket progress (`step:started`, `step:passed`, `step:failed`, `run:completed`)
+- [x] Real-time WebSocket progress (`step:started`, `step:retry`, `step:passed`, `step:failed`, `run:completed`)
 - [x] Race condition fix: step results fetched from DB on `run:completed` (not just from WS stream)
 - [x] Run history (last 8 runs per flow) with one-click Re-run
 - [x] Flow search + status filter on project page
@@ -156,9 +158,10 @@ The current auth subflow generator produces a fixed YAML sequence based on the a
 | 🔴 High | Deep-screen crawl (manual trigger) | Fixes point-coordinate guessing for forms on inner screens |
 | 🔴 High | Verify Bio update flow end-to-end | Current focus — validates input field tap strategy with real data |
 | 🟡 Medium | Auth subflow from registry | Login screen elements vary per app — hardcoded template breaks for non-standard login flows |
-| 🟡 Medium | Step retry (1–2 retries on timeout before fail) | Timing issues are the #1 cause of flaky mobile runs |
 | 🟡 Medium | User auth + team model | Can't share with a team without login |
-| 🟢 Low | Cloud screenshot storage (S3/R2) | Screenshots live on local disk — lost on server restart |
+| 🟡 Medium | Self-healing selectors (web) — Phase C | When a selector fails, re-extract live DOM, ask Gemini for replacement, retry; queue proposal for human review (do not auto-mutate `flowSteps.command`) |
+| ✅ Done | Step retry (web) — Phase B | Per-flow `maxRetries` (default 2) + 500 ms backoff + `step:retry` WS event |
+| ✅ Done | Cloud screenshot storage — Phase A | Supabase Storage with FS fallback; full URL stored in `stepResults.screenshotPath` |
 | 🟢 Low | Remove debug logging in `parseHierarchyOutput` | Temporary — logs raw Flutter field names to confirm field mapping |
 
 ---
@@ -201,3 +204,7 @@ The current auth subflow generator produces a fixed YAML sequence based on the a
 | 2026-04-12 | `clearText` before every `inputText` | Fields may have content from previous runs; clearText makes the step idempotent |
 | 2026-04-12 | `skipAuth` flag instead of auto-detecting login state | Simple and explicit; auto-detection would require inspecting app state which is unreliable |
 | 2026-04-12 | Dropped `assertWithAI` / `ai` Maestro commands | These require Maestro Cloud login — adds dependency and complexity for no clear gain at this stage |
+| 2026-05-06 | Supabase Storage for screenshots (vs S3/R2) | Free tier covers POC volume; service-role uploads bypass RLS; public bucket avoids signed-URL plumbing until auth lands. Frontend helper passes through full URLs and falls back to legacy `/runner/screenshots/:runId/:filename` for old rows |
+| 2026-05-06 | Step retry stored on `flows.maxRetries` (per-flow, not per-step) | Simpler config for POC; per-step granularity can be added later if needed. 500 ms backoff between attempts; `attempts` count persisted on `stepResults` for run-history visibility |
+| 2026-05-06 | Self-heal scoped to web only; mobile relies on Maestro's native retry/heuristics | Web selectors are uniquely fragile (CSS class churn, DOM restructuring). Maestro's text/point matching is more resilient and doesn't benefit from the same heal loop |
+| 2026-05-06 | Hybrid auto-accept for self-heal (heal at runtime, queue for human review) | Silent semantic mistakes are the worst-case for a test tool. Future trust-tier auto-accept after N successful uses of a healed selector |

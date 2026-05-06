@@ -121,6 +121,7 @@ export const api = {
           selectorUsed: string | null;
         }>;
         environmentId: string;
+        errorMessage?: string;
       }
     ) =>
       request<{
@@ -233,7 +234,9 @@ export const api = {
     get: (runId: string) =>
       request<TestRun & { stepResults: StepResult[] }>(`/runner/${runId}`),
     screenshotUrl: (screenshotPath: string) =>
-      `${BASE}/runner/screenshots/${screenshotPath}`,
+      /^https?:\/\//.test(screenshotPath)
+        ? screenshotPath
+        : `${BASE}/runner/screenshots/${screenshotPath}`,
     wsUrl: (runId: string) =>
       `${BASE.replace(/^http/, "ws")}/runner/ws/${runId}`,
   },

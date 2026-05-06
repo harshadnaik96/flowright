@@ -64,6 +64,10 @@ For each step, you can click **View screenshot** to see what the screen looked l
 - **Web** — captured by the browser after every step
 - **Mobile** — captured by Maestro only on failed steps (shows the exact state at the point of failure)
 
+If a step had to retry before passing (or before finally failing), you'll see a small `try N/M` badge next to it. Yellow = recovered after retry, muted = failed after exhausting retries. The default policy is 2 retries (3 attempts total) per step with a 500 ms backoff between attempts; configure per flow via `flows.maxRetries` in the database.
+
+Screenshots are stored in Supabase Storage when configured (see `docs/SUPABASE_SETUP.md`); otherwise they fall back to the API server's local disk.
+
 ---
 
 ## Run Again

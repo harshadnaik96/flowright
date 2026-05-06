@@ -92,17 +92,20 @@ startRun(runId):
   1. Load run + steps + environment from DB
   2. Decrypt environment auth
   3. Build envVars: runtimeVariables + env_otp + env_mpin + baseUrl
-  4. mkdir /tmp/flowright-runs/{runId}/
-  5. Update run status → "running"
-  6. Broadcast run:started
-  7. Launch headless Chromium
-  8. Inject SSO storage state (if auth.type === "sso")
-  9. For each step:
+  4. Update run status → "running"
+  5. Broadcast run:started
+  6. Launch headless Chromium
+  7. Inject SSO storage state (if auth.type === "sso")
+  8. For each step:
      a. Broadcast step:started
-     b. executeStep(page, cypressCommand, envVars)
-     c. page.screenshot({ path: "step-N.png" })
-     d. Insert stepResults row
-     e. Broadcast step:passed or step:failed
+     b. Retry loop (up to 1 + flow.maxRetries attempts):
+          - executeStep(page, command, envVars)
+          - on success → break
+          - on failure (and attempt < max) → broadcast step:retry, sleep 500ms
+     c. page.screenshot() → uploadScreenshot(runId, "step-N.png", buffer)
+          (Supabase if configured, else /tmp/flowright-runs/{runId}/step-N.png)
+     d. Insert stepResults row (with attempts count)
+     e. Broadcast step:passed or step:failed (with attempt + maxAttempts)
      f. If failed → insert remaining steps as "skipped", break
   10. Update run status → "passed" | "failed"
   11. Broadcast run:completed
@@ -198,8 +201,9 @@ All events conform to `WsEvent` from `@flowright/shared`:
 |------------|---------------|
 | `run:started` | `totalSteps` |
 | `step:started` | `stepOrder`, `plainEnglish` |
-| `step:passed` | `stepOrder`, `plainEnglish`, `screenshotPath` |
-| `step:failed` | `stepOrder`, `plainEnglish`, `screenshotPath`, `errorMessage` |
+| `step:retry` | `stepOrder`, `plainEnglish`, `attempt`, `maxAttempts`, `errorMessage` (last failure) |
+| `step:passed` | `stepOrder`, `plainEnglish`, `screenshotPath`, `attempt`, `maxAttempts` |
+| `step:failed` | `stepOrder`, `plainEnglish`, `screenshotPath`, `errorMessage`, `attempt`, `maxAttempts` |
 | `run:completed` | `status` ("passed" \| "failed") |
 | `run:error` | `errorMessage` |
 
@@ -217,10 +221,12 @@ Multiple clients can connect to the same `runId` simultaneously. The server fans
 
 ## Screenshots
 
-- Stored at `{SCREENSHOT_DIR}/{runId}/step-{order}.png`
-- Default `SCREENSHOT_DIR`: `/tmp/flowright-runs`
-- `screenshotPath` in DB/events: `"{runId}/step-{order}.png"` (relative)
-- Full URL: `GET /runner/screenshots/{runId}/step-{order}.png`
+Storage is handled by `apps/api/src/services/storage.ts → uploadScreenshot()`:
+
+- **Cloud (default when configured)**: uploaded to Supabase Storage bucket `SUPABASE_BUCKET` (default `flowright-runs`) at object path `{runId}/step-{order}.png`. `stepResults.screenshotPath` stores the **full public URL**. See `docs/SUPABASE_SETUP.md` for setup.
+- **Local fallback (no Supabase env vars)**: written to `{SCREENSHOT_DIR}/{runId}/step-{order}.png` (default `/tmp/flowright-runs`). `stepResults.screenshotPath` stores the relative path `"{runId}/step-{order}.png"`, served by `GET /runner/screenshots/{runId}/{filename}`.
+
+The frontend helper (`api.runner.screenshotUrl`) detects which form by checking for `http(s)://` and either passes the URL through or prefixes the legacy serving route. Legacy rows from before Phase A continue to work via the FS path.
 
 **Web**: screenshots captured by Playwright after every step (pass or fail).
 
@@ -232,7 +238,10 @@ Multiple clients can connect to the same `runId` simultaneously. The server fans
 
 | Var | Description |
 |-----|-------------|
-| `SCREENSHOT_DIR` | Where screenshots are stored (default: `/tmp/flowright-runs`) |
+| `SCREENSHOT_DIR` | Local fallback dir for screenshots when Supabase is not configured (default: `/tmp/flowright-runs`) |
+| `SUPABASE_URL` | Supabase project URL — enables cloud storage |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase service-role key (server-side only — bypasses RLS for uploads) |
+| `SUPABASE_BUCKET` | Bucket name (default: `flowright-runs`) |
 
 ---
 

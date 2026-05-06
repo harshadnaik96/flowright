@@ -68,6 +68,7 @@ export const flows = pgTable("flows", {
   rawTestCase: text("raw_test_case").notNull(),
   variables: jsonb("variables").notNull().default("[]"), // FlowVariable[]
   status: flowStatusEnum("status").default("draft").notNull(),
+  maxRetries: integer("max_retries").default(2).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -130,4 +131,5 @@ export const stepResults = pgTable("step_results", {
   errorMessage: text("error_message"),
   warningMessage: text("warning_message"),
   durationMs: integer("duration_ms"),
+  attempts: integer("attempts").default(1).notNull(),
 });

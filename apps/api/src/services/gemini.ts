@@ -112,6 +112,9 @@ RULES:
 10. Each step must be exactly ONE cy. command — no multi-line commands, no && or || chaining between cy calls
 11. If a plain-English step mentions verifying multiple elements (e.g. "verify email AND password"), split it into one step per element
 12. Detect any tester-provided variables (e.g. amounts, names, IDs) and list them as detectedVariables
+13. OTP/MPIN inputs: Many apps use split digit-box OTP or MPIN fields (multiple inputs with maxlength="1" or type="tel", NOT a single input with placeholder). For these, generate:
+    cy.get('input[maxlength="1"]').first().type(Cypress.env('env_otp')) // or 'env_mpin' as appropriate
+    Only use cy.get('[placeholder*="OTP"]').type(...) if the registry shows a single OTP input with a placeholder.
 
 FLOW NAME: ${flowName}
 
@@ -207,6 +210,7 @@ export async function regenerateStep(
   instruction: string,
   currentSteps: GeneratedStep[],
   registry: SelectorEntry[],
+  errorMessage?: string,
 ): Promise<GeneratedStep> {
   const ai = getClient();
 
@@ -224,12 +228,23 @@ CURRENT STEP:
 Plain English: ${stepToFix.plainEnglish}
 Command: ${stepToFix.command}
 Selector Used: ${stepToFix.selectorUsed ?? "none"}
+${errorMessage ? `\nRUNTIME ERROR:\n${errorMessage}` : ""}
 
 TESTER'S CORRECTION:
 ${instruction}
 
 SELECTOR REGISTRY:
 ${JSON.stringify(registrySummary, null, 2)}
+
+IMPORTANT RULES:
+- OTP/MPIN inputs: Many apps use split digit-box OTP or MPIN fields (multiple inputs with maxlength="1", NOT a single placeholder field).
+  If the error suggests the element was not found and the step is about entering OTP or MPIN, use:
+  cy.get('input[maxlength="1"]').first().type(Cypress.env('env_otp')) // or 'env_mpin'
+- Only use cy.get('[placeholder*="OTP"]').type(...) if the registry shows a single OTP input with a placeholder.
+- Phone numbers → Cypress.env('phone_number')
+- OTP → Cypress.env('env_otp')
+- MPIN → Cypress.env('env_mpin')
+- Password → Cypress.env('env_password')
 
 Return a JSON object for the corrected step:
 {

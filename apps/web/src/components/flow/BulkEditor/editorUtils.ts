@@ -17,7 +17,7 @@ export function buildEditorDocument(steps: FlowStep[]): string {
 
 function buildHeader(order: number, plainEnglish: string): string {
   const prefix = `${HEADER_PREFIX}${order}: ${plainEnglish} `;
-  const padLength = Math.max(0, 72 - prefix.length);
+  const padLength = Math.max(1, 72 - prefix.length);
   return prefix + "─".repeat(padLength);
 }
 

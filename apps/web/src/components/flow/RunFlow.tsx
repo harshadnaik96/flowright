@@ -28,6 +28,8 @@ type StepLiveState = {
   warningMessage?: string;
   durationMs?: number;
   startedAt?: number;
+  attempt?: number;
+  maxAttempts?: number;
 };
 
 type RunFlowProps = {
@@ -213,6 +215,19 @@ function AccordionStepRow({
         <div className="flex items-center gap-2 shrink-0">
           {step.status === "running" && step.startedAt && (
             <ElapsedTimer startedAt={step.startedAt} />
+          )}
+
+          {step.attempt && step.attempt > 1 && (
+            <span
+              className={`text-[10px] font-mono px-1.5 py-0.5 rounded border ${
+                step.status === "passed"
+                  ? "border-yellow-500/40 bg-yellow-500/10 text-yellow-600"
+                  : "border-muted-foreground/30 bg-muted/30 text-muted-foreground"
+              }`}
+              title={`Attempt ${step.attempt}${step.maxAttempts ? ` of ${step.maxAttempts}` : ""}`}
+            >
+              try {step.attempt}{step.maxAttempts ? `/${step.maxAttempts}` : ""}
+            </span>
           )}
 
           {step.status === "passed" && step.durationMs !== undefined && (
@@ -432,6 +447,17 @@ export function RunFlow({
         setOpenSteps(new Set([order]));
       }
 
+      if (event.type === "step:retry") {
+        const order = event.payload.stepOrder!;
+        setSteps((prev) =>
+          prev.map((s) =>
+            s.order === order
+              ? { ...s, attempt: event.payload.attempt, maxAttempts: event.payload.maxAttempts }
+              : s
+          )
+        );
+      }
+
       if (event.type === "step:passed" || event.type === "step:failed") {
         const order = event.payload.stepOrder!;
         setSteps((prev) =>
@@ -445,6 +471,8 @@ export function RunFlow({
               errorMessage:   event.payload.errorMessage,
               warningMessage: event.payload.warningMessage,
               durationMs,
+              attempt: event.payload.attempt ?? s.attempt,
+              maxAttempts: event.payload.maxAttempts ?? s.maxAttempts,
             };
           })
         );
@@ -469,6 +497,7 @@ export function RunFlow({
                   status: result.status,
                   errorMessage: result.errorMessage ?? undefined,
                   screenshotPath: result.screenshotPath ?? undefined,
+                  attempt: result.attempts ?? s.attempt,
                 };
               }
               return s.status === "pending" ? { ...s, status: "skipped" } : s;

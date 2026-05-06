@@ -95,6 +95,7 @@ export interface Flow {
   rawTestCase: string;
   variables: FlowVariable[];
   status: FlowStatus;
+  maxRetries: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -135,6 +136,7 @@ export interface StepResult {
   errorMessage?: string;
   warningMessage?: string;
   durationMs?: number;
+  attempts: number;
 }
 
 // ─── Bulk Editor ──────────────────────────────────────────────────────────────
@@ -201,6 +203,7 @@ export interface RegenerateStepRequest {
 export type WsEventType =
   | "run:started"
   | "step:started"
+  | "step:retry"
   | "step:passed"
   | "step:failed"
   | "run:completed"
@@ -217,5 +220,7 @@ export interface WsEvent {
     warningMessage?: string;
     status?: RunStatus;
     totalSteps?: number;
+    attempt?: number;
+    maxAttempts?: number;
   };
 }
