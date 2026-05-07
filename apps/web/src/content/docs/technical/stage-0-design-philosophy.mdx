@@ -1,0 +1,100 @@
+---
+title: "Design Philosophy"
+---
+
+# Design Philosophy
+
+This document explains the *why* behind Flowright's architecture — the decisions that shaped how it works, and the tradeoffs that were made deliberately.
+
+---
+
+## Core principle: intent over implementation
+
+The fundamental bet Flowright makes is that **test intent is more durable than test implementation**. A description like "submit the payment form with a valid card and verify the confirmation screen" outlives any specific selector, any class name, any DOM structure. The selector is an implementation detail. The intent is what you actually care about.
+
+This is why Flowright separates the two:
+- You own the intent (plain-English description, reviewed step list)
+- Flowright owns the implementation (automation commands, selectors, retry logic, healing)
+
+When the app changes and a selector breaks, Flowright can propose a new implementation without requiring you to re-express the intent.
+
+---
+
+## Why LLM-driven generation, not record-and-replay
+
+Record-and-replay tools capture exactly what you clicked: the coordinates, the exact selector, the timing. They're fast to author but fragile by design — any UI change breaks them, and the recordings don't express *what* you were testing, only *how* you clicked it.
+
+LLM-driven generation starts from a description of what you're testing. The generated commands target elements semantically — by their role, label, or test attribute — rather than by their accidental position in the DOM. They're more likely to survive a UI reskin, a reorganized page, or a renamed class.
+
+The tradeoff: generation takes a few seconds and requires a review step. That cost is paid once per flow, not on every run.
+
+---
+
+## The LLM layer is provider-agnostic
+
+Flowright's generation and self-heal services call an LLM, but they are not coupled to any specific provider. The interface is: send a structured prompt, receive structured output. The current default implementation uses a fast, cost-effective model, but the abstraction is designed so the provider can be swapped — to a different cloud model, a self-hosted model, or a fine-tuned specialist — without changing the surrounding system.
+
+This matters for teams with data residency requirements, cost constraints, or preferences for a specific vendor.
+
+---
+
+## Why the crawler exists
+
+LLMs hallucinate. If you ask a model to generate a Playwright command for "click the Login button" without telling it what selectors actually exist in your app, it will invent one. It might be right. It might target an element that doesn't exist, or one that exists on a different page.
+
+The crawler runs Playwright (for web) or Maestro's hierarchy inspector (for mobile) against your live app and extracts the real interactive elements: their labels, their selectors, their types, and which page they live on. This becomes the **selector registry** — a grounded, up-to-date index of what's actually in your app.
+
+When Flowright generates a flow, it passes the relevant registry entries to the LLM alongside your test description. The model is working with real selectors, not inventing them. When the app changes and a crawl picks up the new structure, the registry is updated and subsequent generation reflects reality.
+
+---
+
+## Why self-heal is reviewer-gated, not automatic
+
+When a selector fails at runtime, Flowright can inspect the live DOM, find candidate elements, and ask the LLM to propose a replacement command. This often works. But "often" is not good enough for an auto-apply.
+
+A selector that changes might mean:
+- The element moved to a new location (safe to auto-heal)
+- The element was replaced by a redesigned control (heal with care)
+- The element was removed because the flow is now wrong (healing would mask a real regression)
+
+Flowright can't reliably distinguish these cases without context that only a human has. So healed commands go to a review queue. You see a side-by-side diff of the original and proposed command, accept or reject, and the accepted command is written back to the flow.
+
+This keeps the test library accurate. A flow that auto-heals its way past a real product regression is worse than no automation at all.
+
+---
+
+## Why prerequisite flows, not shared session state
+
+A common pattern in test suites is a shared login fixture: a function that logs in before each test, or a pre-seeded cookie that gets injected. Both approaches couple the tests to an implementation detail of how authentication works.
+
+Flowright's prerequisite flow model is different: one flow (e.g. a Login flow) runs in the same browser session before another flow's steps begin. The session state — cookies, auth tokens, local storage — carries over naturally because it's the same browser instance. No fixture injection, no session serialization.
+
+The benefit: the prerequisite is itself a Flowright flow. It gets reviewed, it can be fixed, it appears in the run view as a distinct phase. When login breaks, you know exactly which phase failed and why.
+
+The constraint: one level of prerequisite. A → B is supported. A → B → C is not, and circular chains are not validated. The practical impact is low — most auth flows are a single login sequence, not a chain.
+
+---
+
+## Why Playwright for web, Maestro for mobile
+
+These are the best available tools for their respective execution contexts — not an arbitrary choice.
+
+**Playwright** is the most capable headless browser automation library available. It handles modern web apps (SPAs, shadow DOM, iframes, network interception) reliably. Flowright uses it for both crawling (extracting the selector registry) and execution (running steps).
+
+**Maestro** is purpose-built for mobile UI testing. It drives apps at the OS level — not via WebDriver, not via Appium's bridge layer — which makes it faster, less brittle, and easier to set up. It works with native and hybrid apps on Android and iOS without requiring app instrumentation.
+
+A single unified runner would mean compromising one platform for the other. Keeping them separate means each platform gets tooling that was designed for it.
+
+---
+
+## What the system intentionally doesn't do
+
+**No parallelism at scale.** Runs are sequential per environment. The architecture doesn't prevent parallelism, but it isn't optimized for it — there's no distributed execution or device farm integration.
+
+**No test data management.** Flowright doesn't generate, seed, or clean up test data. Variables let you parameterize runs (e.g. phone number, email), but managing test accounts and database state is outside scope.
+
+**No native CI/CD integration.** Flowright is a run-on-demand tool. API-driven triggering from a CI pipeline is possible but not a first-class workflow.
+
+**No flakiness analytics.** Retry outcomes are recorded per step, and the `try N/M` badge surfaces them in the UI. There is no aggregated flakiness dashboard or threshold-based alerting.
+
+These are deliberate omissions, not oversights. Each one is a valid next layer of capability — but adding it before the core loop (write → run → heal) is solid would be premature.

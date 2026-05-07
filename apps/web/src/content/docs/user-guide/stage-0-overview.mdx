@@ -1,0 +1,105 @@
+---
+title: "What is Flowright?"
+---
+
+# What is Flowright?
+
+## The problem it solves
+
+Test automation has a cost problem. Writing automated tests is slow. Keeping them working as the app changes is even slower. The result is that most teams either skip automation entirely, or invest heavily in it and then watch it rot every sprint when the UI shifts under it.
+
+Flowright is built on a different premise: **the person who knows what to test shouldn't need to know how to automate it**. A QA engineer who can write a clear description of a test scenario already has everything Flowright needs to run it.
+
+---
+
+## What Flowright does
+
+Flowright takes a plain-English description of a test case and turns it into a running automated test — then keeps it running as your app evolves.
+
+There are three phases:
+
+**1. Write** — Describe what you want to test in plain English. Flowright rewrites it as a structured, numbered step list and asks you to review it. You correct anything that looks wrong, then generate the automation code.
+
+**2. Run** — Approved flows run on demand against any environment you've configured. For web, Flowright drives a real headless browser. For mobile, it drives your device or emulator directly. You watch live progress and see screenshots for every step.
+
+**3. Heal** — When your app's UI changes and a test breaks, Flowright's self-heal system detects what failed, inspects the live page, and proposes a fix. You review the proposed change and apply or reject it. Your test library stays working without manual re-authoring.
+
+---
+
+## The mental model
+
+Think of Flowright as a collaborator, not a recorder. It doesn't capture clicks and replay them. It understands what you're trying to test and generates code that targets the right elements — then adapts when those elements move.
+
+```
+You: "Login with valid credentials and verify the dashboard loads"
+         ↓
+Flowright: structured steps + automation commands
+         ↓
+Browser / Device: real execution, live screenshots
+         ↓
+UI drift detected? → propose fix → you approve → done
+```
+
+The session is always real. No mocks, no stubbed responses, no simulated state. What you see in the run view is exactly what a real user would see.
+
+---
+
+## Platforms
+
+| Platform | Execution | Typical use |
+|----------|-----------|-------------|
+| **Web** | Playwright (headless Chromium) | Any browser-based app |
+| **Android** | Maestro CLI + connected device / emulator | Native or hybrid apps |
+| **iOS** | Maestro CLI + connected simulator | Native or hybrid apps |
+
+Web and mobile use separate execution engines but share the same project structure, flow authoring workflow, run history, and review UI.
+
+---
+
+## From manual tester to automation engineer — without writing code
+
+This is the story Flowright is designed to enable.
+
+A manual QA engineer knows the product better than anyone. They know the edge cases, the flows that break most often, the scenarios that development always misses. They also spend a large part of every sprint re-running the same checks by hand — clicking through the same screens, entering the same credentials, verifying the same outcomes — because no one has had time to automate them.
+
+That knowledge is valuable. The repetition is waste.
+
+**With Flowright, the same tester who runs a regression manually can automate it in the same sitting.**
+
+Here's what that looks like in practice:
+
+1. You've just finished a manual regression of the payment flow. You found one bug, fixed it, retested it. Now instead of moving on, you open Flowright and describe what you just tested: *"Navigate to checkout, add a product to the cart, complete payment with a test card, and verify the order confirmation page appears."*
+
+2. Flowright reflects it back as a numbered step list. You read it — it matches what you did. You click Generate.
+
+3. You run it. Flowright executes the same flow you just ran by hand, in a real browser, in about 30 seconds. You watch it live. It passes.
+
+4. That test now lives in your library. Next sprint, when the payment page gets a redesign, the test breaks on one step. Flowright proposes a fix — the button label changed from "Complete Payment" to "Pay Now". You review the diff, accept it. The test is green again.
+
+You didn't write a line of code. You didn't learn a testing framework or a selector syntax. You applied your domain knowledge — which is the hard part — and Flowright handled the mechanical translation.
+
+Over time, the library grows. Flows that used to take a full day to regression-test manually now run in minutes. You spend your sprint time on exploratory testing, edge cases, new features — the work that requires human judgment, not the work that doesn't.
+
+**That's the shift Flowright is designed to create: manual QA expertise expressed as durable, automated coverage.**
+
+---
+
+## What Flowright is not
+
+**Not a record-and-replay tool.** There is no browser extension that watches you click and generates a script. Flowright starts from your description, which means the generated tests are more readable and more resilient than recorded tests.
+
+**Not a test framework.** You don't write code, configure selectors, or manage a test suite in a file tree. The test library lives in Flowright's UI.
+
+**Not a magic black box.** Every generated step is visible. You review it before it runs. You approve fixes before they're applied. The AI suggests; you decide.
+
+**Not a CI system.** Flowright is a run-on-demand tool, not a pipeline scheduler. Triggering runs from CI is possible via the API but is not the primary workflow.
+
+---
+
+## Where to start
+
+If you're setting Flowright up for the first time: → [Getting Started](/docs/user-guide/stage-1-getting-started)
+
+If Flowright is already running and you want to write your first test: → [Crawling Your App](/docs/user-guide/stage-2-crawler)
+
+If you want to understand how it works under the hood: → [Architecture Overview](/docs/technical/stage-1-architecture)

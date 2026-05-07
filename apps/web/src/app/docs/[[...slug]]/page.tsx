@@ -49,24 +49,24 @@ export default async function DocPage(props: {
         <div className='grid grid-cols-1 md:grid-cols-2 gap-4 lg:gap-6'>
           {[
             {
-              title: "Architecture",
-              desc: "Understand the fundamental Gemini pipeline and flow system.",
+              title: "What is Flowright?",
+              desc: "The problem it solves, the mental model, and what it is not.",
+              href: "/docs/user-guide/stage-0-overview",
+            },
+            {
+              title: "Getting Started",
+              desc: "Set up Flowright for your team and run your first test.",
+              href: "/docs/user-guide/stage-1-getting-started",
+            },
+            {
+              title: "Design Philosophy",
+              desc: "Why LLM-driven generation, why the crawler exists, and the tradeoffs made deliberately.",
+              href: "/docs/technical/stage-0-design-philosophy",
+            },
+            {
+              title: "Architecture Overview",
+              desc: "The full stack: monorepo structure, database schema, API routes, and runtime execution.",
               href: "/docs/technical/stage-1-architecture",
-            },
-            {
-              title: "Crawler",
-              desc: "Map your application UI elements and endpoints automatically.",
-              href: "/docs/technical/stage-2-crawler",
-            },
-            {
-              title: "Generator",
-              desc: "Convert plain English test cases into executable Cypress code.",
-              href: "/docs/technical/stage-3-generator",
-            },
-            {
-              title: "Test Runner",
-              desc: "Execute flows in headless Chromium and persist results.",
-              href: "/docs/technical/stage-5-runner",
             },
           ].map((card) => (
             <Link

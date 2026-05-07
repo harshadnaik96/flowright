@@ -57,7 +57,7 @@ export async function MarkdownRenderer({ content }: MarkdownRendererProps) {
               rehypeCaptureRaw,
               rehypeSlug,
               [rehypePrettyCode, { 
-                theme: 'github-dark',
+                theme: 'one-dark-pro',
                 onVisitLine(node: any) {
                   // Prevent lines from collapsing in `display: grid` mode, and allow empty lines to be copy/pasted
                   if (node.children.length === 0) {

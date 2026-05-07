@@ -12,6 +12,7 @@ export const DOCS_NAV: NavSection[] = [
   {
     title: "User Guide",
     items: [
+      { title: "What is Flowright?",  slug: ["user-guide", "stage-0-overview"] },
       { title: "Getting Started",    slug: ["user-guide", "stage-1-getting-started"] },
       { title: "Crawling Your App",  slug: ["user-guide", "stage-2-crawler"] },
       { title: "Generating Flows",   slug: ["user-guide", "stage-3-generator"] },
@@ -23,6 +24,7 @@ export const DOCS_NAV: NavSection[] = [
   {
     title: "Technical Reference",
     items: [
+      { title: "Design Philosophy",     slug: ["technical", "stage-0-design-philosophy"] },
       { title: "Architecture Overview", slug: ["technical", "stage-1-architecture"] },
       { title: "Crawler",               slug: ["technical", "stage-2-crawler"] },
       { title: "AI Generator",          slug: ["technical", "stage-3-generator"] },
