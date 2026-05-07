@@ -137,6 +137,27 @@ export interface StepResult {
   warningMessage?: string;
   durationMs?: number;
   attempts: number;
+  wasHealed?: boolean;
+}
+
+// ─── Self-Healing ─────────────────────────────────────────────────────────────
+
+export type HealingStatus = "pending" | "accepted" | "rejected";
+
+export interface SelectorHealing {
+  id: string;
+  runId: string;
+  stepId: string;
+  flowId: string;
+  originalCommand: string;
+  healedCommand: string;
+  originalSelector?: string;
+  healedSelector?: string;
+  errorMessage?: string;
+  screenshotPath?: string;
+  status: HealingStatus;
+  healedAt: string;
+  reviewedAt?: string;
 }
 
 // ─── Bulk Editor ──────────────────────────────────────────────────────────────
@@ -204,6 +225,7 @@ export type WsEventType =
   | "run:started"
   | "step:started"
   | "step:retry"
+  | "step:healed"
   | "step:passed"
   | "step:failed"
   | "run:completed"
@@ -222,5 +244,7 @@ export interface WsEvent {
     totalSteps?: number;
     attempt?: number;
     maxAttempts?: number;
+    healedSelector?: string;
+    originalSelector?: string;
   };
 }

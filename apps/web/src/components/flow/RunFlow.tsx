@@ -30,6 +30,9 @@ type StepLiveState = {
   startedAt?: number;
   attempt?: number;
   maxAttempts?: number;
+  wasHealed?: boolean;
+  healedSelector?: string;
+  originalSelector?: string;
 };
 
 type RunFlowProps = {
@@ -215,6 +218,19 @@ function AccordionStepRow({
         <div className="flex items-center gap-2 shrink-0">
           {step.status === "running" && step.startedAt && (
             <ElapsedTimer startedAt={step.startedAt} />
+          )}
+
+          {step.wasHealed && (
+            <span
+              className="text-[10px] font-mono px-1.5 py-0.5 rounded border border-yellow-500/40 bg-yellow-500/10 text-yellow-700 dark:text-yellow-400"
+              title={
+                step.healedSelector
+                  ? `Auto-healed: ${step.originalSelector ?? "?"} → ${step.healedSelector}`
+                  : "Auto-healed at runtime"
+              }
+            >
+              healed
+            </span>
           )}
 
           {step.attempt && step.attempt > 1 && (
@@ -447,6 +463,22 @@ export function RunFlow({
         setOpenSteps(new Set([order]));
       }
 
+      if (event.type === "step:healed") {
+        const order = event.payload.stepOrder!;
+        setSteps((prev) =>
+          prev.map((s) =>
+            s.order === order
+              ? {
+                  ...s,
+                  wasHealed: true,
+                  healedSelector: event.payload.healedSelector,
+                  originalSelector: event.payload.originalSelector,
+                }
+              : s
+          )
+        );
+      }
+
       if (event.type === "step:retry") {
         const order = event.payload.stepOrder!;
         setSteps((prev) =>
@@ -498,6 +530,7 @@ export function RunFlow({
                   errorMessage: result.errorMessage ?? undefined,
                   screenshotPath: result.screenshotPath ?? undefined,
                   attempt: result.attempts ?? s.attempt,
+                  wasHealed: result.wasHealed ?? s.wasHealed,
                 };
               }
               return s.status === "pending" ? { ...s, status: "skipped" } : s;

@@ -276,3 +276,93 @@ Return a JSON object for the corrected step:
   if (!raw) throw new Error("Gemini returned empty step regeneration");
   return JSON.parse(raw) as GeneratedStep;
 }
+
+// ─── Self-Heal: propose a replacement selector ────────────────────────────────
+// Called from the runner when a step fails with a selector-pattern error.
+// We re-extract the live DOM and ask Gemini to pick a new element that matches
+// the original intent. Returns null if no confident replacement is found.
+
+export interface ProposeSelectorFixInput {
+  failedCommand: string;
+  errorMessage: string;
+  plainEnglish: string;
+  liveElements: SelectorEntry[];
+}
+
+export interface ProposeSelectorFixResult {
+  healedCommand: string;
+  healedSelector: string | null;
+  reasoning: string;
+}
+
+export async function proposeSelectorFix(
+  input: ProposeSelectorFixInput,
+): Promise<ProposeSelectorFixResult | null> {
+  const ai = getClient();
+
+  // Trim live elements payload — only the fields useful for picking a replacement
+  const liveSummary = input.liveElements.slice(0, 200).map((e) => ({
+    label: e.label,
+    selector: e.selector,
+    type: e.elementType,
+    ...(e.placeholder && { placeholder: e.placeholder }),
+    ...(e.ariaLabel && { ariaLabel: e.ariaLabel }),
+    ...(e.textContent && { text: e.textContent }),
+  }));
+
+  const prompt = `You are a Cypress automation engineer fixing a flaky test step. The step failed at runtime — most likely because the selector no longer matches an element on the page (the element was renamed, restructured, or removed).
+
+Your job is to propose a replacement Cypress command that targets the SAME logical element using the LIVE DOM snapshot below.
+
+ORIGINAL STEP (plain English): ${input.plainEnglish}
+FAILED COMMAND: ${input.failedCommand}
+RUNTIME ERROR: ${input.errorMessage}
+
+LIVE DOM ELEMENTS (just re-extracted from the page after the failure):
+${JSON.stringify(liveSummary, null, 2)}
+
+RULES:
+1. Match the original step's intent. If the original was a click on "Submit" and the live DOM has "Sign In" with the same role/position, that is a likely rename — propose it.
+2. Prefer stable selectors: data-testid > id > aria-label > name > placeholder > text.
+3. Keep the Cypress command shape identical — same verb (click/type/should/etc.), same action arguments. Only the selector should change.
+4. If no element in the live DOM is a confident match for the original intent, return healedSelector: "" and reasoning explaining why.
+5. Do NOT invent selectors that aren't in the live elements list.
+
+Return JSON:
+{
+  "healedCommand": "cy.get('[data-testid=\\"sign-in\\"]').click()",
+  "healedSelector": "[data-testid=\\"sign-in\\"]",
+  "reasoning": "Original 'Submit' button no longer present; 'Sign In' button with same role found in live DOM."
+}`;
+
+  const response = await ai.models.generateContent({
+    model: MODEL,
+    contents: prompt,
+    config: {
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          healedCommand: { type: Type.STRING },
+          healedSelector: { type: Type.STRING },
+          reasoning: { type: Type.STRING },
+        },
+        required: ["healedCommand", "reasoning"],
+      },
+    },
+  });
+
+  const raw = response.text?.trim();
+  if (!raw) return null;
+
+  let parsed: ProposeSelectorFixResult;
+  try {
+    parsed = JSON.parse(raw) as ProposeSelectorFixResult;
+  } catch {
+    return null;
+  }
+  // Reject empty / unchanged proposals
+  if (!parsed.healedCommand || parsed.healedCommand.trim() === input.failedCommand.trim()) return null;
+  if (parsed.healedSelector === "") return null;
+  return parsed;
+}

@@ -7,6 +7,8 @@ import type {
   SelectorRegistry,
   TestRun,
   StepResult,
+  SelectorHealing,
+  HealingStatus,
   CreateProjectRequest,
   CreateEnvironmentRequest,
   CrawlResponse,
@@ -239,5 +241,32 @@ export const api = {
         : `${BASE}/runner/screenshots/${screenshotPath}`,
     wsUrl: (runId: string) =>
       `${BASE.replace(/^http/, "ws")}/runner/ws/${runId}`,
+  },
+
+  // ─── Healings (self-heal review queue) ──────────────────────────────────────
+
+  healings: {
+    list: (params: { projectId?: string; flowId?: string; status?: HealingStatus } = {}) => {
+      const qs = new URLSearchParams();
+      if (params.projectId) qs.set("projectId", params.projectId);
+      if (params.flowId)    qs.set("flowId", params.flowId);
+      if (params.status)    qs.set("status", params.status);
+      const query = qs.toString();
+      return request<Array<SelectorHealing & {
+        stepPlainEnglish: string;
+        stepOrder: number;
+        flowName: string;
+        projectId: string;
+      }>>(`/healings${query ? `?${query}` : ""}`);
+    },
+    accept: (id: string, applyToFlow = true) =>
+      request<{ id: string; status: "accepted"; appliedToFlow: boolean }>(
+        `/healings/${id}/accept`,
+        { method: "POST", body: JSON.stringify({ applyToFlow }) },
+      ),
+    reject: (id: string) =>
+      request<{ id: string; status: "rejected" }>(`/healings/${id}/reject`, {
+        method: "POST",
+      }),
   },
 };

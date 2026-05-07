@@ -1,6 +1,6 @@
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
 import { db } from "../db/client";
-import { testRuns, stepResults, flows, flowSteps, environments } from "../db/schema";
+import { testRuns, stepResults, flows, flowSteps, environments, selectorHealings } from "../db/schema";
 import { eq } from "drizzle-orm";
 import { decryptAuth } from "./encryption";
 import type { EnvironmentAuth, RunStatus } from "@flowright/shared";
@@ -8,6 +8,7 @@ import { readFile } from "fs/promises";
 import { join } from "path";
 import { addRunListener, broadcast } from "./ws-broadcast";
 import { uploadScreenshot } from "./storage";
+import { healSelector } from "./self-heal";
 
 export { addRunListener };
 
@@ -467,19 +468,67 @@ export async function startRun(runId: string): Promise<void> {
       let warningMessage: string | undefined;
       let screenshotRelPath: string | undefined;
       let attempts = 0;
+      let activeCommand = step.command;
+      let healPending: {
+        originalCommand: string;
+        healedCommand: string;
+        originalSelector: string | null;
+        healedSelector: string | null;
+        errorMessage: string;
+      } | null = null;
+      let wasHealed = false;
 
       for (let attempt = 1; attempt <= maxAttempts; attempt++) {
         attempts = attempt;
         try {
-          const result = await executeStep(page, step.command, envVars, env.baseUrl);
+          const result = await executeStep(page, activeCommand, envVars, env.baseUrl);
           warningMessage = result.warningMessage;
           status = "passed";
           errorMessage = undefined;
+          if (healPending) wasHealed = true;
           break;
         } catch (err) {
           const raw = err instanceof Error ? err.message : String(err);
           errorMessage = humanizeError(raw);
           status = "failed";
+
+          // Try a single heal pass on the first failure of the original command.
+          // Web runner only — mobile uses Maestro's native matching.
+          if (!healPending) {
+            try {
+              const heal = await healSelector({
+                page,
+                command: activeCommand,
+                plainEnglish: step.plainEnglish,
+                errorMessage,
+              });
+              if (heal && heal.healedCommand !== activeCommand) {
+                healPending = {
+                  originalCommand: activeCommand,
+                  healedCommand: heal.healedCommand,
+                  originalSelector: heal.originalSelector,
+                  healedSelector: heal.healedSelector,
+                  errorMessage,
+                };
+                broadcast(runId, {
+                  type: "step:healed",
+                  runId,
+                  payload: {
+                    stepOrder: step.order,
+                    plainEnglish: step.plainEnglish,
+                    originalSelector: heal.originalSelector ?? undefined,
+                    healedSelector: heal.healedSelector ?? undefined,
+                    attempt,
+                    maxAttempts,
+                  },
+                });
+                activeCommand = heal.healedCommand;
+              }
+            } catch {
+              // heal failure is non-fatal — fall through to normal retry
+            }
+          }
+
           if (attempt < maxAttempts) {
             broadcast(runId, {
               type: "step:retry",
@@ -519,7 +568,26 @@ export async function startRun(runId: string): Promise<void> {
         warningMessage: warningMessage ?? null,
         durationMs,
         attempts,
+        wasHealed,
       });
+
+      // If a heal was applied AND the step ultimately passed, queue the
+      // proposal for human review. Failed heals (didn't fix the step) are
+      // dropped — they aren't useful to review.
+      if (healPending && wasHealed) {
+        await db.insert(selectorHealings).values({
+          runId,
+          stepId: step.id,
+          flowId: run.flowId,
+          originalCommand: healPending.originalCommand,
+          healedCommand: healPending.healedCommand,
+          originalSelector: healPending.originalSelector ?? null,
+          healedSelector: healPending.healedSelector ?? null,
+          errorMessage: healPending.errorMessage,
+          screenshotPath: screenshotRelPath ?? null,
+          status: "pending",
+        });
+      }
 
       broadcast(runId, {
         type: status === "passed" ? "step:passed" : "step:failed",
@@ -532,6 +600,8 @@ export async function startRun(runId: string): Promise<void> {
           warningMessage,
           attempt: attempts,
           maxAttempts,
+          healedSelector: wasHealed ? healPending?.healedSelector ?? undefined : undefined,
+          originalSelector: wasHealed ? healPending?.originalSelector ?? undefined : undefined,
         },
       });
 

@@ -1,6 +1,6 @@
 import Link from "next/link"
 import { notFound } from "next/navigation"
-import { Plus, RefreshCw, Cpu, Activity, Globe, Smartphone, ShieldCheck } from "lucide-react"
+import { Plus, RefreshCw, Cpu, Activity, Globe, Smartphone, ShieldCheck, Sparkles } from "lucide-react"
 import { AppShell } from "@/components/layout/AppShell"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -52,6 +52,11 @@ export default async function ProjectPage({
               )}
             </div>
             <div className="flex items-center gap-3">
+              <Link href={`/projects/${id}/healings`}>
+                <Button variant="outline" className="border-white/20 bg-white/5 text-white hover:bg-white/10 hover:text-white font-medium">
+                  <Sparkles className="mr-2 h-4 w-4" /> Self-heal review
+                </Button>
+              </Link>
                <Link href={`/projects/${id}/flows/new`}>
                 <Button className="bg-indigo-500 hover:bg-indigo-600 border-none shadow-lg shadow-indigo-500/30 font-bold px-6">
                   <Plus className="mr-2 h-4 w-4" /> New Flow

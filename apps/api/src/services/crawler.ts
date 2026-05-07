@@ -185,7 +185,7 @@ function buildSelector(el: {
   return el.tagName;
 }
 
-async function extractElements(page: Page, pageUrl: string): Promise<SelectorEntry[]> {
+export async function extractElements(page: Page, pageUrl: string): Promise<SelectorEntry[]> {
   return page.evaluate((url) => {
     const entries: Array<{
       label: string;

@@ -10,6 +10,7 @@ import { flowRoutes } from "./routes/flows";
 import { runnerRoutes } from "./routes/runner";
 import { agentTokenRoutes } from "./routes/agent-tokens";
 import { downloadsRoutes } from "./routes/downloads";
+import { healingRoutes } from "./routes/healings";
 import { agentRegistry } from "./services/agent-registry";
 
 const app = Fastify({ logger: true });
@@ -43,6 +44,7 @@ async function bootstrap() {
   await app.register(runnerRoutes, { prefix: "/runner" });
   await app.register(agentTokenRoutes, { prefix: "/agent-tokens" });
   await app.register(downloadsRoutes, { prefix: "/" });
+  await app.register(healingRoutes, { prefix: "/healings" });
 
   // Agent WebSocket endpoint — agents connect here with their token
   app.get("/agent/ws", { websocket: true }, async (socket, req) => {
