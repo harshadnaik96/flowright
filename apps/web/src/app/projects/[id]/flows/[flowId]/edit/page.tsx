@@ -168,6 +168,7 @@ export default function EditFlowPage({
             environments={environments}
             isRefining={isRefining}
             error={error}
+            projectId={projectId}
             onFlowNameChange={setFlowName}
             onRawInputChange={setRawInput}
             onEnvironmentChange={setEnvironmentId}

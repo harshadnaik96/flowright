@@ -96,6 +96,7 @@ export interface Flow {
   variables: FlowVariable[];
   status: FlowStatus;
   maxRetries: number;
+  prerequisiteFlowId?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -225,11 +226,15 @@ export type WsEventType =
   | "run:started"
   | "step:started"
   | "step:retry"
+  | "step:heal-log"
   | "step:healed"
   | "step:passed"
   | "step:failed"
   | "run:completed"
-  | "run:error";
+  | "run:error"
+  | "setup:started"
+  | "setup:completed"
+  | "setup:failed";
 
 export interface WsEvent {
   type: WsEventType;
@@ -246,5 +251,8 @@ export interface WsEvent {
     maxAttempts?: number;
     healedSelector?: string;
     originalSelector?: string;
+    setupFlowName?: string;
+    setupTotalSteps?: number;
+    healLogMessage?: string;
   };
 }

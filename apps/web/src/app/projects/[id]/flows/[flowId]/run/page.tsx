@@ -14,7 +14,14 @@ async function getData(projectId: string, flowId: string) {
       api.projects.get(projectId),
       api.runner.agents().catch(() => []),
     ])
-    return { flow, environments, project, agents }
+
+    let prerequisiteFlowName: string | undefined
+    if (flow.prerequisiteFlowId) {
+      const prereq = await api.flows.get(flow.prerequisiteFlowId).catch(() => null)
+      prerequisiteFlowName = prereq?.name
+    }
+
+    return { flow, environments, project, agents, prerequisiteFlowName }
   } catch {
     return null
   }
@@ -32,7 +39,7 @@ export default async function RunPage({
   const data = await getData(projectId, flowId)
   if (!data) notFound()
 
-  const { flow, environments, project, agents } = data
+  const { flow, environments, project, agents, prerequisiteFlowName } = data
   const isMobile = project.platform === "android" || project.platform === "ios"
 
   // Decode pre-filled vars from re-run link (base64 JSON)
@@ -95,6 +102,7 @@ export default async function RunPage({
           agents={isMobile ? agents : undefined}
           initialEnvId={preEnvId}
           initialVarValues={initialVarValues}
+          prerequisiteFlowName={prerequisiteFlowName}
         />
       </div>
     </AppShell>

@@ -40,7 +40,10 @@ export default function NewFlowPage({
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    api.environments.list(projectId).then(setEnvironments).catch(() => {})
+    api.environments.list(projectId).then((envs) => {
+      setEnvironments(envs)
+      if (envs.length === 1) setEnvironmentId(envs[0].id)
+    }).catch(() => {})
   }, [projectId])
 
   // ── Step 1: Refine ────────────────────────────────────────────────────────
@@ -103,13 +106,17 @@ export default function NewFlowPage({
   }
 
   // ── Approve ───────────────────────────────────────────────────────────────
-  async function handleApprove() {
+  async function handleApprove(andRun = false) {
     if (!flowId) return
     setIsApproving(true)
     setError(null)
     try {
       await api.generator.approve(flowId, { steps, variables })
-      router.push(`/projects/${projectId}/flows/${flowId}`)
+      if (andRun) {
+        router.push(`/projects/${projectId}/flows/${flowId}/run`)
+      } else {
+        router.push(`/projects/${projectId}/flows/${flowId}`)
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Approval failed")
     } finally {
@@ -168,6 +175,7 @@ export default function NewFlowPage({
             environments={environments}
             isRefining={isRefining}
             error={error}
+            projectId={projectId}
             onFlowNameChange={setFlowName}
             onRawInputChange={setRawInput}
             onEnvironmentChange={setEnvironmentId}

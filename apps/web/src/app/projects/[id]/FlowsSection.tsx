@@ -11,6 +11,18 @@ import { cn } from "@/lib/utils"
 import { RunFlowButton } from "./RunFlowButton"
 import type { Flow } from "@flowright/shared"
 
+function relativeTime(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime()
+  const mins = Math.floor(diff / 60000)
+  if (mins < 1) return "just now"
+  if (mins < 60) return `${mins}m ago`
+  const hrs = Math.floor(mins / 60)
+  if (hrs < 24) return `${hrs}h ago`
+  const days = Math.floor(hrs / 24)
+  if (days < 7) return `${days}d ago`
+  return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" })
+}
+
 type StatusFilter = "all" | Flow["status"]
 
 const STATUS_TABS: { label: string; value: StatusFilter }[] = [
@@ -127,7 +139,7 @@ export function FlowsSection({ flows, projectId }: Props) {
                     <Clock size={10} />
                     <span>Modified</span>
                   </div>
-                  <span className="text-[11px] font-medium text-slate-500">Recently</span>
+                  <span className="text-[11px] font-medium text-slate-500">{relativeTime(flow.updatedAt)}</span>
                 </div>
                 {flow.status === "approved" && (
                   <RunFlowButton projectId={projectId} flowId={flow.id} />

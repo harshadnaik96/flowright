@@ -1,0 +1,159 @@
+---
+title: "Architecture Overview"
+---
+
+# Stage 1 — Technical Reference: Project Architecture
+
+## Overview
+Flowright is a deployed web application that converts plain-English test cases into automated tests. It supports two platforms: **web** (Playwright + Cypress-style commands) and **mobile** (Android/iOS via Maestro CLI). It is a pnpm monorepo with two apps and one shared package.
+
+---
+
+## Repository Structure
+
+```
+flowright/
+├── apps/
+│   ├── web/               Next.js 15 + TypeScript + Tailwind + shadcn/ui
+│   └── api/               Fastify 5 + TypeScript
+├── packages/
+│   └── shared/            Shared TypeScript types (no runtime deps)
+├── docker-compose.yml
+├── .env.example
+├── pnpm-workspace.yaml
+└── package.json
+```
+
+---
+
+## Tech Stack
+
+| Layer       | Technology                        | Version  |
+|-------------|-----------------------------------|----------|
+| Frontend    | Next.js, TypeScript, Tailwind CSS, shadcn/ui | 15.x |
+| Backend     | Fastify                           | 5.x      |
+| LLM         | Google Gemini via `@google/genai` | latest   |
+| Web Crawler | Playwright (headless Chromium)    | 1.49.x   |
+| Web Runner  | Playwright (Cypress-to-Playwright transpiler) | — |
+| Mobile Crawler | Maestro CLI (`maestro hierarchy`) | latest |
+| Mobile Runner | Maestro CLI (`maestro test`)    | latest   |
+| Database    | PostgreSQL + Drizzle ORM          | PG 16    |
+| Realtime    | WebSocket via `@fastify/websocket`| —        |
+| Deployment  | Docker + Docker Compose           | —        |
+
+> Mobile runner requires **Java 17+** in the deployment environment (Maestro CLI dependency).
+
+---
+
+## Shared Types (`packages/shared`)
+
+All cross-boundary types live here. Neither `web` nor `api` define their own entity types — they import from `@flowright/shared`.
+
+Key types:
+
+| Type | Description |
+|------|-------------|
+| `Platform` | `"web" \| "android" \| "ios"` |
+| `Project` | Top-level grouping of flows and environments; includes `platform` field |
+| `Environment` | A named target within a project; `baseUrl` holds the app URL (web) or package name (mobile) |
+| `SelectorRegistry` | Crawled element map for an environment |
+| `SelectorEntry` | Single web element: label, CSS selector, type, page |
+| `MobileSelectorEntry` | Single mobile element: `text`, `accessibilityId`, `resourceId`, `bounds` |
+| `Flow` | A named test case with status (draft/approved/archived) |
+| `FlowStep` | One step within a flow: plain English + `command` (Cypress-style for web, Maestro YAML for mobile) |
+| `TestRun` | An execution of a flow against an environment |
+| `StepResult` | Per-step outcome with screenshot and error detail |
+| `WsEvent` | WebSocket event emitted during a test run |
+
+---
+
+## Database Schema (Drizzle ORM)
+
+Tables: `projects`, `environments`, `selector_registries`, `flows`, `flow_steps`, `test_runs`, `step_results`, `selector_healings`, `heal_telemetry`, `agent_tokens`
+
+Notable columns:
+- `projects.platform` — enum: `web | android | ios` (default `web`)
+- `environments.base_url` — stores app URL for web, package name (e.g. `com.example.app`) for mobile
+- `environments.auth_subflow_path` — nullable; path to auto-generated Maestro auth subflow YAML for mobile environments
+- `flow_steps.command` — stores Cypress-style command for web, Maestro YAML line for mobile
+- `flows.max_retries` — per-flow retry budget for the runner (default 2 → 3 attempts total)
+- `step_results.attempts` — number of attempts taken; `step_results.was_healed` — true if the recovering attempt used a healed command
+- `step_results.screenshot_path` — Supabase public URL when cloud storage is configured, else relative path served by `/runner/screenshots`
+- `selector_healings` — audit table for runtime self-heal proposals (status: `pending | accepted | rejected`)
+- `heal_telemetry` — raw heal-attempt log (every attempt regardless of outcome); columns: `attempt`, `trigger_error_message`, `live_extract_ms`, `proposal_latency_ms`, `proposal_received`, `rejected_reason`, `proposed_command`, `proposed_selector`, `reasoning`, `outcome` (`no_proposal | recovered | failed_after_heal`)
+- `agent_tokens.token_hash` — SHA-256 of plain token; used by mobile agents on WS connect
+
+Relationships:
+```
+projects
+  └── environments
+        └── selector_registries (one per crawl, latest used)
+  └── flows
+        └── flow_steps
+              └── step_results (per test_run)
+        └── test_runs
+              └── step_results
+```
+
+Migrations managed by Drizzle Kit:
+```bash
+pnpm --filter @flowright/api exec drizzle-kit generate
+pnpm --filter @flowright/api exec drizzle-kit migrate
+```
+
+---
+
+## API Architecture (Fastify)
+
+- Runs on port `3001`
+- CORS restricted to `WEB_URL` env var
+- WebSocket support via `@fastify/websocket`
+- Routes namespaced by feature: `/projects`, `/environments`, `/crawler`, `/generator`, `/flows`, `/runner`, `/agent-tokens`, `/healings`
+- Logging via pino-pretty in dev
+
+---
+
+## Frontend Architecture (Next.js 15)
+
+- App Router with TypeScript
+- Tailwind CSS + shadcn/ui for components
+- All `/api/*` requests proxied to Fastify via `next.config.ts` rewrites
+- `@flowright/shared` imported directly for types (no runtime bundle impact)
+
+---
+
+## Environment Variables
+
+| Variable | Used By | Description |
+|----------|---------|-------------|
+| `DATABASE_URL` | API | PostgreSQL connection string |
+| `GEMINI_API_KEY` | API | Google Gemini API key (model: `gemini-3-flash-preview`) |
+| `ENCRYPTION_KEY` | API | ≥ 32 chars; AES-256-GCM key for env auth credentials at rest |
+| `PORT` | API | API server port (default 3001) |
+| `WEB_URL` | API | CORS allowed origin |
+| `SSO_SESSION_TTL_HOURS` | API | TTL for cached SSO storage state (default 8) |
+| `SUPABASE_URL` | API | Optional — enables cloud screenshot storage |
+| `SUPABASE_SERVICE_ROLE_KEY` | API | Server-side only; bypasses RLS for uploads |
+| `SUPABASE_BUCKET` | API | Bucket name (default `flowright-runs`) |
+| `SCREENSHOT_DIR` | API | Local FS fallback when Supabase isn't configured (default `/tmp/flowright-runs`) |
+| `NEXT_PUBLIC_API_URL` | Web | Base URL for API calls |
+
+---
+
+## Setup
+
+For full local-development setup (env vars per app, Maestro install for mobile, smoke test, common issues), see **[`PROJECT_SETUP.md`](../PROJECT_SETUP.md)**.
+
+TL;DR:
+
+```bash
+docker compose up db -d
+pnpm install
+# fill apps/api/.env (GEMINI_API_KEY, ENCRYPTION_KEY, optional SUPABASE_*)
+pnpm --filter @flowright/api db:push
+pnpm dev
+```
+
+Full Docker stack (db + api + web): `GEMINI_API_KEY=... docker compose up --build`. The mobile agent binary is **not** containerised — it must run on the host to talk to local emulators / simulators.
+
+Access: http://localhost:3000

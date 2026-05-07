@@ -35,6 +35,28 @@ export async function flowRoutes(app: FastifyInstance) {
     return { ...flow, steps };
   });
 
+  // Set or clear the prerequisite flow
+  app.patch<{
+    Params: { id: string };
+    Body: { prerequisiteFlowId: string | null };
+  }>("/:id", async (req, reply) => {
+    const { id } = req.params;
+    const { prerequisiteFlowId } = req.body;
+
+    if (prerequisiteFlowId === id) {
+      return reply.status(400).send({ error: "A flow cannot be its own prerequisite" });
+    }
+
+    const [updated] = await db
+      .update(flows)
+      .set({ prerequisiteFlowId: prerequisiteFlowId ?? null, updatedAt: new Date() })
+      .where(eq(flows.id, id))
+      .returning();
+
+    if (!updated) return reply.status(404).send({ error: "Flow not found" });
+    return { flow: updated };
+  });
+
   // Delete a flow — clears runs (cascades to stepResults) then the flow itself
   app.delete<{ Params: { id: string } }>("/:id", async (req, reply) => {
     const { id: flowId } = req.params;

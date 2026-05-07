@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation"
 import Link from "next/link"
-import { ArrowLeft, Play, RotateCcw, CheckCircle2, XCircle, Clock, AlertTriangle } from "lucide-react"
+import { ArrowLeft, Play, RotateCcw, CheckCircle2, XCircle, Clock, AlertTriangle, GitMerge } from "lucide-react"
 import { AppShell } from "@/components/layout/AppShell"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -8,16 +8,18 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
 import { api } from "@/lib/api"
 import { FlowActions } from "./FlowActions"
-import type { TestRun, Environment } from "@flowright/shared"
+import { PrerequisiteSelector } from "./PrerequisiteSelector"
+import type { TestRun, Environment, Flow } from "@flowright/shared"
 
 async function getData(projectId: string, flowId: string) {
   try {
-    const [flow, runs, environments] = await Promise.all([
+    const [flow, runs, environments, allFlows] = await Promise.all([
       api.flows.get(flowId),
       api.runner.list(flowId).catch(() => [] as TestRun[]),
       api.environments.list(projectId).catch(() => [] as Environment[]),
+      api.flows.list(projectId).catch(() => [] as Flow[]),
     ])
-    return { flow, runs, environments }
+    return { flow, runs, environments, allFlows }
   } catch {
     return null
   }
@@ -40,7 +42,9 @@ export default async function FlowDetailPage({
   const data = await getData(projectId, flowId)
   if (!data) notFound()
 
-  const { flow, runs, environments } = data
+  const { flow, runs, environments, allFlows } = data
+  // Exclude the current flow from the prerequisite options to prevent self-reference
+  const prerequisiteOptions = allFlows.filter((f) => f.id !== flowId)
 
   return (
     <AppShell>
@@ -98,6 +102,27 @@ export default async function FlowDetailPage({
             ))}
           </div>
         </div>
+
+        {/* Prerequisite */}
+        {prerequisiteOptions.length > 0 && (
+          <>
+            <Separator />
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <GitMerge className="h-4 w-4 text-muted-foreground" />
+                <p className="text-sm font-medium">Prerequisite flow</p>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Steps from the selected flow run first in the same browser session — useful for logging in before testing protected pages.
+              </p>
+              <PrerequisiteSelector
+                flowId={flowId}
+                currentPrerequisiteId={flow.prerequisiteFlowId}
+                availableFlows={prerequisiteOptions}
+              />
+            </div>
+          </>
+        )}
 
         {/* Variables */}
         {flow.variables?.length > 0 && (

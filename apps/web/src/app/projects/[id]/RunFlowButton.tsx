@@ -14,7 +14,7 @@ export function RunFlowButton({ projectId, flowId }: { projectId: string; flowId
       onClick={(e) => {
         e.preventDefault()
         e.stopPropagation()
-        router.push(`/projects/${projectId}/flows/${flowId}?run=true`)
+        router.push(`/projects/${projectId}/flows/${flowId}/run`)
       }}
     >
       <Play className="h-3 w-3 mr-1" /> Run

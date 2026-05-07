@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { ArrowLeft, CheckCircle2, Code2, Loader2 } from "lucide-react"
+import { ArrowLeft, CheckCircle2, Code2, Loader2, Play } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -18,7 +18,7 @@ interface StepsPanelProps {
   onVariableChange: (key: string, value: string) => void
   onRegenerate: (index: number, instruction: string) => Promise<void>
   onBack: () => void
-  onApprove: () => void
+  onApprove: (andRun?: boolean) => void
 }
 
 export function StepsPanel({
@@ -104,13 +104,22 @@ export function StepsPanel({
         <Button variant="outline" onClick={onBack} disabled={isApproving}>
           <ArrowLeft className="h-4 w-4" /> Back
         </Button>
-        <Button onClick={onApprove} disabled={isApproving}>
-          {isApproving ? (
-            <><Loader2 className="h-4 w-4 animate-spin" /> Approving...</>
-          ) : (
-            <><CheckCircle2 className="h-4 w-4" /> Approve Flow</>
-          )}
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={() => onApprove(false)} disabled={isApproving}>
+            {isApproving ? (
+              <><Loader2 className="h-4 w-4 animate-spin" /> Approving…</>
+            ) : (
+              <><CheckCircle2 className="h-4 w-4" /> Approve</>
+            )}
+          </Button>
+          <Button onClick={() => onApprove(true)} disabled={isApproving}>
+            {isApproving ? (
+              <><Loader2 className="h-4 w-4 animate-spin" /> Approving…</>
+            ) : (
+              <><Play className="h-4 w-4" /> Approve &amp; Run</>
+            )}
+          </Button>
+        </div>
       </div>
     </div>
   )

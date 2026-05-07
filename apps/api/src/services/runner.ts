@@ -453,6 +453,64 @@ export async function startRun(runId: string): Promise<void> {
     const page = await context.newPage();
     let overallStatus: RunStatus = "passed";
 
+    // ── Prerequisite phase ─────────────────────────────────────────────────────
+    // If this flow has a prerequisite, run its steps silently in the same browser
+    // session before the main steps. Auth cookies / session state carry over.
+    if (flow.prerequisiteFlowId) {
+      const [prereqFlow] = await db.select().from(flows).where(eq(flows.id, flow.prerequisiteFlowId));
+      if (prereqFlow) {
+        const prereqSteps = await db
+          .select()
+          .from(flowSteps)
+          .where(eq(flowSteps.flowId, prereqFlow.id))
+          .orderBy(flowSteps.order);
+
+        broadcast(runId, {
+          type: "setup:started",
+          runId,
+          payload: { setupFlowName: prereqFlow.name, setupTotalSteps: prereqSteps.length },
+        });
+
+        let setupFailed = false;
+        let setupError: string | undefined;
+
+        for (const prereqStep of prereqSteps) {
+          try {
+            await executeStep(page, prereqStep.command, envVars, env.baseUrl);
+          } catch (err) {
+            setupFailed = true;
+            setupError = humanizeError(err instanceof Error ? err.message : String(err));
+            break;
+          }
+        }
+
+        if (setupFailed) {
+          broadcast(runId, { type: "setup:failed", runId, payload: { errorMessage: setupError } });
+          // Mark all main steps as skipped — the run cannot proceed
+          for (const step of steps) {
+            await db.insert(stepResults).values({
+              runId,
+              stepId: step.id,
+              order: step.order,
+              plainEnglish: step.plainEnglish,
+              status: "skipped",
+              screenshotPath: null,
+              errorMessage: null,
+              durationMs: null,
+            });
+          }
+          overallStatus = "failed";
+          await browser.close();
+          browser = undefined;
+          await db.update(testRuns).set({ status: "failed", completedAt: new Date() }).where(eq(testRuns.id, runId));
+          broadcast(runId, { type: "run:completed", runId, payload: { status: "failed" } });
+          return;
+        }
+
+        broadcast(runId, { type: "setup:completed", runId, payload: {} });
+      }
+    }
+
     for (let i = 0; i < steps.length; i++) {
       const step = steps[i];
       const startTime = Date.now();
@@ -504,6 +562,13 @@ export async function startRun(runId: string): Promise<void> {
                 command: activeCommand,
                 plainEnglish: step.plainEnglish,
                 errorMessage,
+                onProgress: (message) => {
+                  broadcast(runId, {
+                    type: "step:heal-log",
+                    runId,
+                    payload: { stepOrder: step.order, healLogMessage: message },
+                  });
+                },
               });
               healAttemptRecord = heal;
               healAttemptNumber = attempt;

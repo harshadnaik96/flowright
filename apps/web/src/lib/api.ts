@@ -200,6 +200,11 @@ export const api = {
         method: "PATCH",
         body: JSON.stringify(body),
       }),
+    setPrerequisite: (flowId: string, prerequisiteFlowId: string | null) =>
+      request<{ flow: Flow }>(`/flows/${flowId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ prerequisiteFlowId }),
+      }),
   },
 
   // ─── Agent Tokens ───────────────────────────────────────────────────────────

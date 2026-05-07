@@ -7,6 +7,7 @@ import {
   integer,
   boolean,
   pgEnum,
+  type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 
 // ─── Enums ────────────────────────────────────────────────────────────────────
@@ -76,6 +77,8 @@ export const flows = pgTable("flows", {
   variables: jsonb("variables").notNull().default("[]"), // FlowVariable[]
   status: flowStatusEnum("status").default("draft").notNull(),
   maxRetries: integer("max_retries").default(2).notNull(),
+  // Self-referencing FK: run this flow's steps first in the same browser session
+  prerequisiteFlowId: uuid("prerequisite_flow_id").references((): AnyPgColumn => flows.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

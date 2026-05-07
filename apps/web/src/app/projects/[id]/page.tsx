@@ -11,12 +11,13 @@ import { FlowsSection } from "./FlowsSection"
 
 async function getData(id: string) {
   try {
-    const [project, environments, flows] = await Promise.all([
+    const [project, environments, flows, pendingHealings] = await Promise.all([
       api.projects.get(id),
       api.environments.list(id),
       api.flows.list(id),
+      api.healings.list({ projectId: id, status: "pending" }).catch(() => []),
     ])
-    return { project, environments, flows }
+    return { project, environments, flows, pendingCount: pendingHealings.length }
   } catch {
     return null
   }
@@ -31,7 +32,7 @@ export default async function ProjectPage({
   const data = await getData(id)
   if (!data) notFound()
 
-  const { project, environments, flows } = data
+  const { project, environments, flows, pendingCount } = data
 
   return (
     <AppShell>
@@ -53,8 +54,14 @@ export default async function ProjectPage({
             </div>
             <div className="flex items-center gap-3">
               <Link href={`/projects/${id}/healings`}>
-                <Button variant="outline" className="border-white/20 bg-white/5 text-white hover:bg-white/10 hover:text-white font-medium">
-                  <Sparkles className="mr-2 h-4 w-4" /> Self-heal review
+                <Button variant="outline" className="relative border-white/20 bg-white/5 text-white hover:bg-white/10 hover:text-white font-medium">
+                  <Sparkles className={`mr-2 h-4 w-4 ${pendingCount > 0 ? "text-yellow-400" : ""}`} />
+                  Self-heal review
+                  {pendingCount > 0 && (
+                    <span className="ml-2 inline-flex items-center justify-center h-5 min-w-5 px-1.5 rounded-full bg-yellow-400 text-yellow-900 text-[10px] font-bold leading-none">
+                      {pendingCount}
+                    </span>
+                  )}
                 </Button>
               </Link>
                <Link href={`/projects/${id}/flows/new`}>

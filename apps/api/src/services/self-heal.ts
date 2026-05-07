@@ -67,6 +67,7 @@ export async function healSelector(args: {
   command: string;
   plainEnglish: string;
   errorMessage: string;
+  onProgress?: (message: string) => void;
 }): Promise<HealAttempt> {
   const baseAttempt: HealAttempt = {
     triggerErrorMessage: args.errorMessage,
@@ -82,18 +83,24 @@ export async function healSelector(args: {
     originalSelector: extractSelectorFromCommand(args.command),
   };
 
+  const log = args.onProgress ?? (() => {});
+
   let liveElements;
   const extractStart = Date.now();
+  log("Scanning live DOM for interactive elements…");
   try {
     liveElements = await extractElements(args.page, args.page.url());
   } catch {
+    log("DOM extraction failed — cannot propose a fix");
     return { ...baseAttempt, liveExtractMs: Date.now() - extractStart, rejectedReason: "extract_failed" };
   }
   baseAttempt.liveExtractMs = Date.now() - extractStart;
   baseAttempt.elementsExtracted = liveElements?.length ?? 0;
   if (!liveElements || liveElements.length === 0) {
+    log("No elements found on page — skipping Gemini");
     return { ...baseAttempt, rejectedReason: "extract_empty" };
   }
+  log(`Found ${liveElements.length} elements (${baseAttempt.liveExtractMs}ms) — asking Gemini for a fix…`);
 
   const proposalStart = Date.now();
   const outcome = await proposeSelectorFixDetailed({
@@ -105,6 +112,7 @@ export async function healSelector(args: {
   baseAttempt.proposalLatencyMs = Date.now() - proposalStart;
 
   if (outcome.kind === "rejected") {
+    log(`Gemini could not propose a fix (${outcome.reason}) — retrying original command`);
     return { ...baseAttempt, rejectedReason: outcome.reason };
   }
 
@@ -113,6 +121,8 @@ export async function healSelector(args: {
   baseAttempt.reasoning = proposal.reasoning;
   baseAttempt.proposedCommand = proposal.healedCommand;
   baseAttempt.proposedSelector = proposal.healedSelector || null;
+
+  log(`Gemini proposed new selector${proposal.healedSelector ? `: ${proposal.healedSelector}` : ""} (${baseAttempt.proposalLatencyMs}ms) — retrying…`);
 
   return {
     ...baseAttempt,
