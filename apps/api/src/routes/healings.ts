@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { db } from "../db/client";
-import { selectorHealings, flowSteps, flows } from "../db/schema";
-import { and, eq, desc } from "drizzle-orm";
+import { selectorHealings, healTelemetry, flowSteps, flows } from "../db/schema";
+import { and, eq, desc, sql } from "drizzle-orm";
 import type { HealingStatus } from "@flowright/shared";
 
 export async function healingRoutes(app: FastifyInstance) {
@@ -66,6 +66,94 @@ export async function healingRoutes(app: FastifyInstance) {
         .where(eq(selectorHealings.id, id));
 
       return { id, status: "accepted", appliedToFlow: applyToFlow };
+    },
+  );
+
+  // Heal telemetry — list raw heal attempts for measurement / debugging.
+  app.get<{ Querystring: { projectId?: string; flowId?: string; limit?: string } }>(
+    "/telemetry",
+    async (req) => {
+      const { projectId, flowId } = req.query;
+      const limit = Math.min(Number(req.query.limit) || 200, 1000);
+
+      const rows = await db
+        .select({
+          telemetry: healTelemetry,
+          step: { plainEnglish: flowSteps.plainEnglish, order: flowSteps.order },
+          flow: { name: flows.name, projectId: flows.projectId },
+        })
+        .from(healTelemetry)
+        .innerJoin(flowSteps, eq(flowSteps.id, healTelemetry.stepId))
+        .innerJoin(flows, eq(flows.id, healTelemetry.flowId))
+        .where(
+          and(
+            flowId ? eq(healTelemetry.flowId, flowId) : undefined,
+            projectId ? eq(flows.projectId, projectId) : undefined,
+          ),
+        )
+        .orderBy(desc(healTelemetry.createdAt))
+        .limit(limit);
+
+      return rows.map((r) => ({
+        ...r.telemetry,
+        stepPlainEnglish: r.step.plainEnglish,
+        stepOrder: r.step.order,
+        flowName: r.flow.name,
+        projectId: r.flow.projectId,
+      }));
+    },
+  );
+
+  // Aggregate heal-quality stats — total / recovered / no_proposal / failed,
+  // mean latencies, rejection-reason breakdown. Read-mostly view; safe to
+  // poll from a dashboard.
+  app.get<{ Querystring: { projectId?: string; flowId?: string } }>(
+    "/telemetry/summary",
+    async (req) => {
+      const { projectId, flowId } = req.query;
+
+      const [agg] = await db
+        .select({
+          total: sql<number>`count(*)::int`,
+          recovered: sql<number>`sum(case when ${healTelemetry.outcome} = 'recovered' then 1 else 0 end)::int`,
+          noProposal: sql<number>`sum(case when ${healTelemetry.outcome} = 'no_proposal' then 1 else 0 end)::int`,
+          failedAfterHeal: sql<number>`sum(case when ${healTelemetry.outcome} = 'failed_after_heal' then 1 else 0 end)::int`,
+          avgProposalMs: sql<number>`coalesce(avg(${healTelemetry.proposalLatencyMs}), 0)::int`,
+          avgExtractMs: sql<number>`coalesce(avg(${healTelemetry.liveExtractMs}), 0)::int`,
+          avgElements: sql<number>`coalesce(avg(${healTelemetry.elementsExtracted}), 0)::int`,
+        })
+        .from(healTelemetry)
+        .innerJoin(flows, eq(flows.id, healTelemetry.flowId))
+        .where(
+          and(
+            flowId ? eq(healTelemetry.flowId, flowId) : undefined,
+            projectId ? eq(flows.projectId, projectId) : undefined,
+          ),
+        );
+
+      const reasonBreakdown = await db
+        .select({
+          reason: healTelemetry.rejectedReason,
+          count: sql<number>`count(*)::int`,
+        })
+        .from(healTelemetry)
+        .innerJoin(flows, eq(flows.id, healTelemetry.flowId))
+        .where(
+          and(
+            flowId ? eq(healTelemetry.flowId, flowId) : undefined,
+            projectId ? eq(flows.projectId, projectId) : undefined,
+            sql`${healTelemetry.rejectedReason} is not null`,
+          ),
+        )
+        .groupBy(healTelemetry.rejectedReason);
+
+      return {
+        ...agg,
+        rejectionReasons: reasonBreakdown.reduce<Record<string, number>>((acc, r) => {
+          if (r.reason) acc[r.reason] = r.count;
+          return acc;
+        }, {}),
+      };
     },
   );
 

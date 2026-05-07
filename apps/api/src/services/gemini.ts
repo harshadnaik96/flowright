@@ -317,9 +317,20 @@ export interface ProposeSelectorFixResult {
   reasoning: string;
 }
 
+export type ProposeSelectorFixOutcome =
+  | { kind: "proposal"; proposal: ProposeSelectorFixResult }
+  | { kind: "rejected"; reason: "no_text" | "parse_error" | "empty_selector" | "unchanged_command" };
+
 export async function proposeSelectorFix(
   input: ProposeSelectorFixInput,
 ): Promise<ProposeSelectorFixResult | null> {
+  const outcome = await proposeSelectorFixDetailed(input);
+  return outcome.kind === "proposal" ? outcome.proposal : null;
+}
+
+export async function proposeSelectorFixDetailed(
+  input: ProposeSelectorFixInput,
+): Promise<ProposeSelectorFixOutcome> {
   const ai = getClient();
 
   // Trim live elements payload — only the fields useful for picking a replacement
@@ -375,16 +386,19 @@ Return JSON:
   });
 
   const raw = response.text?.trim();
-  if (!raw) return null;
+  if (!raw) return { kind: "rejected", reason: "no_text" };
 
   let parsed: ProposeSelectorFixResult;
   try {
     parsed = JSON.parse(raw) as ProposeSelectorFixResult;
   } catch {
-    return null;
+    return { kind: "rejected", reason: "parse_error" };
   }
-  // Reject empty / unchanged proposals
-  if (!parsed.healedCommand || parsed.healedCommand.trim() === input.failedCommand.trim()) return null;
-  if (parsed.healedSelector === "") return null;
-  return parsed;
+  if (!parsed.healedCommand || parsed.healedCommand.trim() === input.failedCommand.trim()) {
+    return { kind: "rejected", reason: "unchanged_command" };
+  }
+  if (parsed.healedSelector === "") {
+    return { kind: "rejected", reason: "empty_selector" };
+  }
+  return { kind: "proposal", proposal: parsed };
 }

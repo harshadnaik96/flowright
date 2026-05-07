@@ -1,6 +1,6 @@
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
 import { db } from "../db/client";
-import { testRuns, stepResults, flows, flowSteps, environments, selectorHealings } from "../db/schema";
+import { testRuns, stepResults, flows, flowSteps, environments, selectorHealings, healTelemetry } from "../db/schema";
 import { eq } from "drizzle-orm";
 import { decryptAuth } from "./encryption";
 import type { EnvironmentAuth, RunStatus } from "@flowright/shared";
@@ -8,7 +8,7 @@ import { readFile } from "fs/promises";
 import { join } from "path";
 import { addRunListener, broadcast } from "./ws-broadcast";
 import { uploadScreenshot } from "./storage";
-import { healSelector } from "./self-heal";
+import { healSelector, type HealAttempt } from "./self-heal";
 
 export { addRunListener };
 
@@ -477,6 +477,9 @@ export async function startRun(runId: string): Promise<void> {
         errorMessage: string;
       } | null = null;
       let wasHealed = false;
+      let healAttemptRecord: HealAttempt | null = null;
+      let healAttemptNumber = 0;
+      let healTriggered = false;
 
       for (let attempt = 1; attempt <= maxAttempts; attempt++) {
         attempts = attempt;
@@ -494,7 +497,7 @@ export async function startRun(runId: string): Promise<void> {
 
           // Try a single heal pass on the first failure of the original command.
           // Web runner only — mobile uses Maestro's native matching.
-          if (!healPending) {
+          if (!healTriggered) {
             try {
               const heal = await healSelector({
                 page,
@@ -502,12 +505,15 @@ export async function startRun(runId: string): Promise<void> {
                 plainEnglish: step.plainEnglish,
                 errorMessage,
               });
-              if (heal && heal.healedCommand !== activeCommand) {
+              healAttemptRecord = heal;
+              healAttemptNumber = attempt;
+              healTriggered = true;
+              if (heal.result && heal.result.healedCommand !== activeCommand) {
                 healPending = {
                   originalCommand: activeCommand,
-                  healedCommand: heal.healedCommand,
-                  originalSelector: heal.originalSelector,
-                  healedSelector: heal.healedSelector,
+                  healedCommand: heal.result.healedCommand,
+                  originalSelector: heal.result.originalSelector,
+                  healedSelector: heal.result.healedSelector,
                   errorMessage,
                 };
                 broadcast(runId, {
@@ -516,13 +522,13 @@ export async function startRun(runId: string): Promise<void> {
                   payload: {
                     stepOrder: step.order,
                     plainEnglish: step.plainEnglish,
-                    originalSelector: heal.originalSelector ?? undefined,
-                    healedSelector: heal.healedSelector ?? undefined,
+                    originalSelector: heal.result.originalSelector ?? undefined,
+                    healedSelector: heal.result.healedSelector ?? undefined,
                     attempt,
                     maxAttempts,
                   },
                 });
-                activeCommand = heal.healedCommand;
+                activeCommand = heal.result.healedCommand;
               }
             } catch {
               // heal failure is non-fatal — fall through to normal retry
@@ -586,6 +592,35 @@ export async function startRun(runId: string): Promise<void> {
           errorMessage: healPending.errorMessage,
           screenshotPath: screenshotRelPath ?? null,
           status: "pending",
+        });
+      }
+
+      // Heal telemetry — one row per triggered heal attempt regardless of
+      // outcome. This is the empirical signal for measuring heal quality
+      // (success rate, latency, false-positive triggers, no-proposal cases).
+      if (healTriggered && healAttemptRecord) {
+        const outcome = !healAttemptRecord.result
+          ? "no_proposal"
+          : wasHealed
+          ? "recovered"
+          : "failed_after_heal";
+        await db.insert(healTelemetry).values({
+          runId,
+          stepId: step.id,
+          flowId: run.flowId,
+          attempt: healAttemptNumber,
+          triggerErrorMessage: healAttemptRecord.triggerErrorMessage,
+          elementsExtracted: healAttemptRecord.elementsExtracted,
+          liveExtractMs: healAttemptRecord.liveExtractMs,
+          proposalLatencyMs: healAttemptRecord.proposalLatencyMs,
+          proposalReceived: healAttemptRecord.proposalReceived,
+          rejectedReason: healAttemptRecord.rejectedReason,
+          originalCommand: step.command,
+          proposedCommand: healAttemptRecord.proposedCommand,
+          originalSelector: healAttemptRecord.originalSelector,
+          proposedSelector: healAttemptRecord.proposedSelector,
+          reasoning: healAttemptRecord.reasoning,
+          outcome,
         });
       }
 

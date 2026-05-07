@@ -57,9 +57,31 @@ selector_healings (
 )
 
 step_results.was_healed  boolean   -- new column; true when the recovering attempt used a healed command
+
+-- Raw telemetry — one row per heal attempt regardless of outcome.
+-- selector_healings only keeps proven-good fixes (queued for review);
+-- heal_telemetry keeps every attempt so we can measure quality empirically.
+heal_telemetry (
+  id                     uuid pk
+  run_id, step_id, flow_id   -- same cascade rules as selector_healings
+  attempt                int                  -- which retry attempt triggered the heal
+  trigger_error_message  text                 -- humanized error
+  elements_extracted     int                  -- live DOM size handed to Gemini
+  live_extract_ms        int                  -- extractElements() duration
+  proposal_latency_ms    int                  -- Gemini round-trip duration
+  proposal_received      boolean
+  rejected_reason        text                 -- nullable: 'no_text' | 'parse_error' | 'empty_selector' | 'unchanged_command' | 'extract_failed' | 'extract_empty'
+  original_command       text
+  proposed_command       text                 -- nullable when rejected
+  original_selector      text
+  proposed_selector      text
+  reasoning              text                 -- Gemini's explanation; key for prompt iteration
+  outcome                heal_outcome         -- 'no_proposal' | 'recovered' | 'failed_after_heal'
+  created_at             timestamp
+)
 ```
 
-A row is inserted only when the healed command **succeeds**. Failed heals (didn't recover the step) are dropped — no review burden.
+`selector_healings` is inserted only when the healed command **succeeds** (queued for human review). `heal_telemetry` is inserted on **every** triggered heal — including the no-proposal cases that `selector_healings` drops — so we can see the failure modes, not just the wins.
 
 ---
 
@@ -156,6 +178,19 @@ Threaded into all three generator routes:
 
 ---
 
+## Telemetry API
+
+For measurement and prompt iteration, every heal attempt is queryable:
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `GET` | `/healings/telemetry?projectId&flowId&limit` | Raw heal-attempt rows (newest first; default 200, max 1000) joined with flow/step labels |
+| `GET` | `/healings/telemetry/summary?projectId&flowId` | Aggregate stats: `total`, `recovered`, `noProposal`, `failedAfterHeal`, `avgProposalMs`, `avgExtractMs`, `avgElements`, plus a `rejectionReasons` breakdown by reason |
+
+Use the summary to track heal quality over time (recovery rate = `recovered / total`); use the raw list to read Gemini's `reasoning` field on individual cases that surprised you.
+
+---
+
 ## Review API
 
 | Method | Path | Purpose |
@@ -218,4 +253,5 @@ This is the manual escape hatch when:
 - **Trust tier auto-accept** — once a healed selector has succeeded N times across runs without rejection, promote it from "pending" to silently applied.
 - **Per-selector stability score** — `worked / total` count per (env, selector); surface in the bulk editor so testers see which selectors are flaky before a run.
 - **Diff-aware crawl** — DOM hash per page to skip unchanged pages on re-crawl. Pure perf optimization; deferred until profile data justifies it.
-- **Heal latency telemetry** — `proposeSelectorFix` adds a Gemini round-trip mid-test; for slow apps the 10s click timeout may pre-empt useful heal time. Worth measuring before tuning.
+- **Heal-quality dashboard** — visualise `/healings/telemetry/summary` over time (recovery rate, rejection-reason breakdown, p50/p95 latency). The data is already collected; just needs a UI surface.
+- **Prompt iteration loop** — periodically read `heal_telemetry.reasoning` for `failed_after_heal` rows; use these as failure cases when tuning `proposeSelectorFix`'s prompt.

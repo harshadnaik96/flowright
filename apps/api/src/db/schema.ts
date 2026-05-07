@@ -15,6 +15,11 @@ export const flowStatusEnum = pgEnum("flow_status", ["draft", "approved", "archi
 export const runStatusEnum = pgEnum("run_status", ["pending", "running", "passed", "failed", "error"]);
 export const stepResultStatusEnum = pgEnum("step_result_status", ["passed", "failed", "skipped"]);
 export const healingStatusEnum = pgEnum("healing_status", ["pending", "accepted", "rejected"]);
+export const healOutcomeEnum = pgEnum("heal_outcome", [
+  "no_proposal",      // Gemini returned nothing usable (or extraction yielded zero elements)
+  "recovered",        // healed command succeeded on a subsequent attempt
+  "failed_after_heal" // healed command was applied but the step still ultimately failed
+]);
 export const authTypeEnum = pgEnum("auth_type", ["none", "credentials", "email-password", "sso", "custom-script"]);
 export const platformEnum = pgEnum("platform", ["web", "android", "ios"]);
 
@@ -162,4 +167,37 @@ export const selectorHealings = pgTable("selector_healings", {
   status: healingStatusEnum("status").default("pending").notNull(),
   healedAt: timestamp("healed_at").defaultNow().notNull(),
   reviewedAt: timestamp("reviewed_at"),
+});
+
+// ─── Heal Telemetry ───────────────────────────────────────────────────────────
+// One row per heal *attempt* regardless of outcome — including failures and
+// no-proposal cases (which selector_healings drops). This is the raw signal
+// for measuring heal quality: success rate, latency, false-positive triggers,
+// proposals that didn't recover the step.
+
+export const healTelemetry = pgTable("heal_telemetry", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  runId: uuid("run_id")
+    .references(() => testRuns.id, { onDelete: "cascade" })
+    .notNull(),
+  stepId: uuid("step_id")
+    .references(() => flowSteps.id, { onDelete: "cascade" })
+    .notNull(),
+  flowId: uuid("flow_id")
+    .references(() => flows.id, { onDelete: "cascade" })
+    .notNull(),
+  attempt: integer("attempt").notNull(),                     // which retry attempt triggered the heal
+  triggerErrorMessage: text("trigger_error_message").notNull(),
+  elementsExtracted: integer("elements_extracted").default(0).notNull(),
+  liveExtractMs: integer("live_extract_ms").default(0).notNull(),
+  proposalLatencyMs: integer("proposal_latency_ms").default(0).notNull(),
+  proposalReceived: boolean("proposal_received").default(false).notNull(),
+  rejectedReason: text("rejected_reason"),                   // null when proposal accepted; else: 'no_text', 'unchanged_command', 'empty_selector', 'parse_error', 'extract_failed', 'extract_empty'
+  originalCommand: text("original_command").notNull(),
+  proposedCommand: text("proposed_command"),                 // null if no proposal
+  originalSelector: text("original_selector"),
+  proposedSelector: text("proposed_selector"),
+  reasoning: text("reasoning"),                              // Gemini's explanation; useful for prompt iteration
+  outcome: healOutcomeEnum("outcome").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
 });

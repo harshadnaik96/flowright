@@ -69,7 +69,7 @@ Key types:
 
 ## Database Schema (Drizzle ORM)
 
-Tables: `projects`, `environments`, `selector_registries`, `flows`, `flow_steps`, `test_runs`, `step_results`, `selector_healings`, `agent_tokens`
+Tables: `projects`, `environments`, `selector_registries`, `flows`, `flow_steps`, `test_runs`, `step_results`, `selector_healings`, `heal_telemetry`, `agent_tokens`
 
 Notable columns:
 - `projects.platform` — enum: `web | android | ios` (default `web`)
@@ -80,6 +80,7 @@ Notable columns:
 - `step_results.attempts` — number of attempts taken; `step_results.was_healed` — true if the recovering attempt used a healed command
 - `step_results.screenshot_path` — Supabase public URL when cloud storage is configured, else relative path served by `/runner/screenshots`
 - `selector_healings` — audit table for runtime self-heal proposals (status: `pending | accepted | rejected`)
+- `heal_telemetry` — raw heal-attempt log (every attempt regardless of outcome); columns: `attempt`, `trigger_error_message`, `live_extract_ms`, `proposal_latency_ms`, `proposal_received`, `rejected_reason`, `proposed_command`, `proposed_selector`, `reasoning`, `outcome` (`no_proposal | recovered | failed_after_heal`)
 - `agent_tokens.token_hash` — SHA-256 of plain token; used by mobile agents on WS connect
 
 Relationships:

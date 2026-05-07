@@ -45,6 +45,7 @@ Write test case in plain English
 - [x] Self-heal review page (`/projects/:id/healings`): tabbed Pending / Accepted / Rejected with side-by-side command diff, accept-and-apply / reject
 - [x] Stability-hint feedback into Gemini generation: accepted healings inform future `generateSteps` / `regenerateStep` calls (project-scoped for new flows, flow-scoped for single-step regeneration)
 - [x] Re-crawl button in run viewer's failure banner — manual escape hatch when the registry has drifted
+- [x] Heal telemetry — every heal attempt logs latency, element count, Gemini reasoning, and outcome (`no_proposal` / `recovered` / `failed_after_heal`) to `heal_telemetry`; `GET /healings/telemetry` and `/telemetry/summary` for measurement and prompt iteration
 
 ### Mobile Pipeline (Maestro)
 - [x] `maestro hierarchy` crawler — multi-screen crawl (taps nav tabs, captures each screen, aggregates)
@@ -164,7 +165,8 @@ The current auth subflow generator produces a fixed YAML sequence based on the a
 | 🔴 High | Verify Bio update flow end-to-end | Current focus — validates input field tap strategy with real data |
 | 🟡 Medium | Auth subflow from registry | Login screen elements vary per app — hardcoded template breaks for non-standard login flows |
 | 🟡 Medium | User auth + team model | Can't share with a team without login |
-| 🟡 Medium | Validate self-heal end-to-end on a real flow | Phase C/D shipped without real-world heal data — need to break a known flow deliberately and confirm Gemini's proposals are sensible before relying on the loop |
+| 🔴 High | Validate self-heal end-to-end on a real flow | Phase C/D shipped without real-world heal data. `heal_telemetry` is now in place — break a known flow deliberately, then read the recovery rate + rejection-reason breakdown before relying on the loop |
+| 🟡 Medium | Heal-quality dashboard UI | Backend already exposes `/healings/telemetry/summary`; needs a project-scoped page to visualise recovery rate, latency trends, and rejection-reason breakdown |
 | 🟢 Low | Trust-tier auto-accept for self-heal | After N successful uses of a healed selector without rejection, promote to silent apply. Requires accumulating heal history first |
 | 🟢 Low | Per-selector stability score | Track `worked / total` per (env, selector); surface in bulk editor as flakiness signal |
 | 🟢 Low | Diff-aware crawl (DOM hash per page) | Skip unchanged pages on re-crawl. Perf optimization, defer until justified by profile data |
@@ -222,3 +224,5 @@ The current auth subflow generator produces a fixed YAML sequence based on the a
 | 2026-05-06 | Stability hints scoped to project, not environment | A heal that worked in staging is a useful signal for prod (same app under test). Environment-only scoping discards most of the signal |
 | 2026-05-06 | Live DOM extraction for heal (not cached registry) | The registry is what we already had when the step was generated; if it was correct the step would have passed. Live snapshot is the only ground truth |
 | 2026-05-06 | Diff-aware crawl deferred | Pure perf optimization, not correctness. Defer until profile data justifies it |
+| 2026-05-06 | `heal_telemetry` table separate from `selector_healings` | The healings table only keeps proven-good fixes (queued for review). Telemetry needs every attempt — including no-proposal and failed-after-heal cases — to measure heal quality and iterate the prompt. Two tables with different retention semantics is cleaner than one table with mixed-purpose rows |
+| 2026-05-06 | `proposeSelectorFix` returns granular rejection reasons (`no_text` / `parse_error` / `empty_selector` / `unchanged_command`) instead of `null` | These are distinct failure modes pointing at different prompt fixes — collapsing them to null was throwing away the most useful diagnostic signal |
