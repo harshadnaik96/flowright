@@ -63,10 +63,29 @@ export interface GenerationResult {
   detectedVariables: FlowVariable[];
 }
 
+export interface StabilityHintLite {
+  plainEnglish: string;
+  originalSelector: string | null;
+  healedSelector: string | null;
+  healedCommand: string;
+}
+
+function buildStabilityHintsBlock(hints: StabilityHintLite[] | undefined): string {
+  if (!hints || hints.length === 0) return "";
+  const compact = hints.slice(0, 20).map((h) => ({
+    intent: h.plainEnglish,
+    preferSelector: h.healedSelector,
+    avoidSelector: h.originalSelector,
+    exampleCommand: h.healedCommand,
+  }));
+  return `\n\nSTABILITY HINTS (selectors that humans accepted as fixes for past failing runs in this project — prefer these over the registry when the intent matches):\n${JSON.stringify(compact, null, 2)}\n`;
+}
+
 export async function generateSteps(
   refinedTestCase: string,
   registry: SelectorEntry[],
   flowName: string,
+  stabilityHints?: StabilityHintLite[],
 ): Promise<GenerationResult> {
   const ai = getClient();
 
@@ -80,10 +99,12 @@ export async function generateSteps(
     ...(e.ariaLabel && { ariaLabel: e.ariaLabel }),
   }));
 
+  const stabilityBlock = buildStabilityHintsBlock(stabilityHints);
+
   const prompt = `You are a Cypress automation engineer. Convert the following test case into executable Cypress commands.
 
 SELECTOR REGISTRY (elements available in the app):
-${JSON.stringify(registrySummary, null, 2)}
+${JSON.stringify(registrySummary, null, 2)}${stabilityBlock}
 
 RUNTIME VARIABLES (values provided by the tester at run time):
 - phone_number → use: Cypress.env('phone_number')
@@ -211,6 +232,7 @@ export async function regenerateStep(
   currentSteps: GeneratedStep[],
   registry: SelectorEntry[],
   errorMessage?: string,
+  stabilityHints?: StabilityHintLite[],
 ): Promise<GeneratedStep> {
   const ai = getClient();
 
@@ -234,7 +256,7 @@ TESTER'S CORRECTION:
 ${instruction}
 
 SELECTOR REGISTRY:
-${JSON.stringify(registrySummary, null, 2)}
+${JSON.stringify(registrySummary, null, 2)}${buildStabilityHintsBlock(stabilityHints)}
 
 IMPORTANT RULES:
 - OTP/MPIN inputs: Many apps use split digit-box OTP or MPIN fields (multiple inputs with maxlength="1", NOT a single placeholder field).

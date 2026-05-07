@@ -8,6 +8,10 @@ import {
   regenerateStep,
 } from "../services/gemini";
 import {
+  getStabilityHints,
+  getStabilityHintsForFlow,
+} from "../services/self-heal";
+import {
   generateMaestroSteps,
   regenerateMaestroStep,
 } from "../services/gemini-maestro";
@@ -94,10 +98,13 @@ export async function generatorRoutes(app: FastifyInstance) {
 
     const entries = (registry?.entries ?? []) as SelectorEntry[] | MobileSelectorEntry[];
 
+    // Project-scoped stability hints (web only — mobile uses Maestro matching)
+    const stabilityHints = mobile ? undefined : await getStabilityHints(projectId);
+
     try {
       const result = mobile
         ? await generateMaestroSteps(refinedTestCase.trim(), flowName.trim(), entries as MobileSelectorEntry[])
-        : await generateSteps(refinedTestCase.trim(), entries as SelectorEntry[], flowName.trim());
+        : await generateSteps(refinedTestCase.trim(), entries as SelectorEntry[], flowName.trim(), stabilityHints);
 
       // Save as draft flow
       const [flow] = await db
@@ -171,12 +178,16 @@ export async function generatorRoutes(app: FastifyInstance) {
         return { step: fixed };
       }
 
+      const flowIdParam = (req.params as { flowId: string }).flowId;
+      const stabilityHints = await getStabilityHintsForFlow(flowIdParam);
+
       const fixed = await regenerateStep(
         stepIndex,
         instruction.trim(),
         currentSteps as Parameters<typeof regenerateStep>[2],
         registryEntries as SelectorEntry[],
         errorMessage,
+        stabilityHints,
       );
       return { step: fixed };
     } catch (err: unknown) {
@@ -271,10 +282,12 @@ export async function generatorRoutes(app: FastifyInstance) {
 
     const flowEntries = (flowRegistry?.entries ?? []) as SelectorEntry[] | MobileSelectorEntry[];
 
+    const stabilityHints = mobile ? undefined : await getStabilityHints(flow.projectId);
+
     try {
       const result = mobile
         ? await generateMaestroSteps(refinedTestCase.trim(), flowName.trim(), flowEntries as MobileSelectorEntry[])
-        : await generateSteps(refinedTestCase.trim(), flowEntries as SelectorEntry[], flowName.trim());
+        : await generateSteps(refinedTestCase.trim(), flowEntries as SelectorEntry[], flowName.trim(), stabilityHints);
 
       // Clear run history (cascades to stepResults) so the flowSteps FK is safe to drop
       await db.delete(testRuns).where(eq(testRuns.flowId, flowId));

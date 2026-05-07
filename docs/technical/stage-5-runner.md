@@ -99,9 +99,13 @@ startRun(runId):
   8. For each step:
      a. Broadcast step:started
      b. Retry loop (up to 1 + flow.maxRetries attempts):
-          - executeStep(page, command, envVars)
+          - executeStep(page, activeCommand, envVars)
           - on success → break
+          - on first failure only (web): if isSelectorPatternError(err)
+              → re-extract live DOM, ask Gemini for a replacement command
+              → if proposal → swap activeCommand, broadcast step:healed
           - on failure (and attempt < max) → broadcast step:retry, sleep 500ms
+          - if final attempt healed AND step passed → insert selector_healings row (status=pending)
      c. page.screenshot() → uploadScreenshot(runId, "step-N.png", buffer)
           (Supabase if configured, else /tmp/flowright-runs/{runId}/step-N.png)
      d. Insert stepResults row (with attempts count)
@@ -195,14 +199,15 @@ Chaining works: `cy.get(sel).should('be.visible').click()` executes each action 
 
 ## WebSocket Events
 
-All events conform to `WsEvent` from `@flowright/shared`:
+All events conform to `WsEvent` from `@flowright/shared`. For the self-heal subsystem (extract/propose/persist + review API + frontend page), see **`technical/stage-6-self-heal.md`**.
 
 | Event type | Payload fields |
 |------------|---------------|
 | `run:started` | `totalSteps` |
 | `step:started` | `stepOrder`, `plainEnglish` |
 | `step:retry` | `stepOrder`, `plainEnglish`, `attempt`, `maxAttempts`, `errorMessage` (last failure) |
-| `step:passed` | `stepOrder`, `plainEnglish`, `screenshotPath`, `attempt`, `maxAttempts` |
+| `step:healed` | `stepOrder`, `plainEnglish`, `originalSelector?`, `healedSelector?`, `attempt`, `maxAttempts` |
+| `step:passed` | `stepOrder`, `plainEnglish`, `screenshotPath`, `attempt`, `maxAttempts`, `healedSelector?`, `originalSelector?` (when wasHealed) |
 | `step:failed` | `stepOrder`, `plainEnglish`, `screenshotPath`, `errorMessage`, `attempt`, `maxAttempts` |
 | `run:completed` | `status` ("passed" \| "failed") |
 | `run:error` | `errorMessage` |

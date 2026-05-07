@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import {
   CheckCircle2, XCircle, Loader2, Circle, AlertTriangle,
   Play, Pencil, Check, X, ChevronDown, ChevronRight,
-  Terminal, Clock, SkipForward,
+  Terminal, Clock, SkipForward, RefreshCw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -435,6 +435,8 @@ export function RunFlow({
   };
 
   const [overallStatus, setOverallStatus] = useState<"passed" | "failed" | "error" | null>(null);
+  const [recrawlState, setRecrawlState] = useState<"idle" | "running" | "done" | "error">("idle");
+  const [recrawlMessage, setRecrawlMessage] = useState<string | null>(null);
   const [errorMsg, setErrorMsg]           = useState<string | null>(null);
   const wsRef                             = useRef<WebSocket | null>(null);
   const runIdRef                          = useRef<string | null>(null);
@@ -583,6 +585,22 @@ export function RunFlow({
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : "Failed to start run");
       setPageState("setup");
+    }
+  };
+
+  const handleRecrawl = async () => {
+    if (!envId || recrawlState === "running") return;
+    setRecrawlState("running");
+    setRecrawlMessage(null);
+    try {
+      const res = await api.crawler.crawl(envId);
+      setRecrawlState("done");
+      setRecrawlMessage(
+        `Re-crawled ${res.entriesFound ?? 0} elements. Re-run the flow or regenerate steps to pick up changes.`,
+      );
+    } catch (err) {
+      setRecrawlState("error");
+      setRecrawlMessage(err instanceof Error ? err.message : "Recrawl failed");
     }
   };
 
@@ -737,10 +755,30 @@ export function RunFlow({
                    overallStatus === "failed" ? "Run failed" : "Run error"}
                 </span>
               </div>
-              <Button variant="outline" size="sm" onClick={handleRunAgain}>
-                Run Again
-              </Button>
+              <div className="flex items-center gap-2">
+                {!isMobile && overallStatus !== "passed" && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleRecrawl}
+                    disabled={recrawlState === "running"}
+                    aria-label="Re-crawl environment"
+                    title="Re-crawl this environment to refresh the selector registry — useful when the app's UI changed"
+                  >
+                    <RefreshCw className={`h-4 w-4 mr-1.5 ${recrawlState === "running" ? "animate-spin" : ""}`} />
+                    {recrawlState === "running" ? "Re-crawling…" : "Re-crawl"}
+                  </Button>
+                )}
+                <Button variant="outline" size="sm" onClick={handleRunAgain}>
+                  Run Again
+                </Button>
+              </div>
             </div>
+            {recrawlMessage && (
+              <p className={`text-xs ${recrawlState === "error" ? "text-destructive" : "text-muted-foreground"}`}>
+                {recrawlMessage}
+              </p>
+            )}
             {errorMsg && (
               <div className="rounded-md border border-border bg-muted overflow-hidden text-xs font-mono">
                 <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-border">

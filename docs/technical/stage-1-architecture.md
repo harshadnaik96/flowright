@@ -69,13 +69,18 @@ Key types:
 
 ## Database Schema (Drizzle ORM)
 
-Tables: `projects`, `environments`, `selector_registries`, `flows`, `flow_steps`, `test_runs`, `step_results`
+Tables: `projects`, `environments`, `selector_registries`, `flows`, `flow_steps`, `test_runs`, `step_results`, `selector_healings`, `agent_tokens`
 
 Notable columns:
-- `projects.platform` — `platform` enum: `web | android | ios` (default `web`)
+- `projects.platform` — enum: `web | android | ios` (default `web`)
 - `environments.base_url` — stores app URL for web, package name (e.g. `com.example.app`) for mobile
 - `environments.auth_subflow_path` — nullable; path to auto-generated Maestro auth subflow YAML for mobile environments
 - `flow_steps.command` — stores Cypress-style command for web, Maestro YAML line for mobile
+- `flows.max_retries` — per-flow retry budget for the runner (default 2 → 3 attempts total)
+- `step_results.attempts` — number of attempts taken; `step_results.was_healed` — true if the recovering attempt used a healed command
+- `step_results.screenshot_path` — Supabase public URL when cloud storage is configured, else relative path served by `/runner/screenshots`
+- `selector_healings` — audit table for runtime self-heal proposals (status: `pending | accepted | rejected`)
+- `agent_tokens.token_hash` — SHA-256 of plain token; used by mobile agents on WS connect
 
 Relationships:
 ```
@@ -102,7 +107,7 @@ pnpm --filter @flowright/api exec drizzle-kit migrate
 - Runs on port `3001`
 - CORS restricted to `WEB_URL` env var
 - WebSocket support via `@fastify/websocket`
-- Routes namespaced by feature: `/projects`, `/crawler`, `/generator`, `/runner`
+- Routes namespaced by feature: `/projects`, `/environments`, `/crawler`, `/generator`, `/flows`, `/runner`, `/agent-tokens`, `/healings`
 - Logging via pino-pretty in dev
 
 ---
@@ -121,36 +126,33 @@ pnpm --filter @flowright/api exec drizzle-kit migrate
 | Variable | Used By | Description |
 |----------|---------|-------------|
 | `DATABASE_URL` | API | PostgreSQL connection string |
-| `GEMINI_API_KEY` | API | Google Gemini API key |
+| `GEMINI_API_KEY` | API | Google Gemini API key (model: `gemini-3-flash-preview`) |
+| `ENCRYPTION_KEY` | API | ≥ 32 chars; AES-256-GCM key for env auth credentials at rest |
 | `PORT` | API | API server port (default 3001) |
 | `WEB_URL` | API | CORS allowed origin |
+| `SSO_SESSION_TTL_HOURS` | API | TTL for cached SSO storage state (default 8) |
+| `SUPABASE_URL` | API | Optional — enables cloud screenshot storage |
+| `SUPABASE_SERVICE_ROLE_KEY` | API | Server-side only; bypasses RLS for uploads |
+| `SUPABASE_BUCKET` | API | Bucket name (default `flowright-runs`) |
+| `SCREENSHOT_DIR` | API | Local FS fallback when Supabase isn't configured (default `/tmp/flowright-runs`) |
 | `NEXT_PUBLIC_API_URL` | Web | Base URL for API calls |
 
 ---
 
-## Running Locally (without Docker)
+## Setup
+
+For full local-development setup (env vars per app, Maestro install for mobile, smoke test, common issues), see **[`PROJECT_SETUP.md`](../PROJECT_SETUP.md)**.
+
+TL;DR:
 
 ```bash
-# 1. Start PostgreSQL (Docker)
 docker compose up db -d
-
-# 2. Copy env
-cp .env.example .env  # fill in GEMINI_API_KEY
-
-# 3. Install dependencies
 pnpm install
-
-# 4. Run migrations
-pnpm --filter @flowright/api exec drizzle-kit migrate
-
-# 5. Start both apps
+# fill apps/api/.env (GEMINI_API_KEY, ENCRYPTION_KEY, optional SUPABASE_*)
+pnpm --filter @flowright/api db:push
 pnpm dev
 ```
 
-## Running with Docker
-
-```bash
-docker compose up --build
-```
+Full Docker stack (db + api + web): `GEMINI_API_KEY=... docker compose up --build`. The mobile agent binary is **not** containerised — it must run on the host to talk to local emulators / simulators.
 
 Access: http://localhost:3000

@@ -66,7 +66,16 @@ For each step, you can click **View screenshot** to see what the screen looked l
 
 If a step had to retry before passing (or before finally failing), you'll see a small `try N/M` badge next to it. Yellow = recovered after retry, muted = failed after exhausting retries. The default policy is 2 retries (3 attempts total) per step with a 500 ms backoff between attempts; configure per flow via `flows.maxRetries` in the database.
 
+If the runner had to **auto-heal** a selector mid-run (because the original selector no longer matched), you'll see a yellow `healed` badge on the step. Hover for the original-vs-healed selector diff. Healed runs aren't applied to the flow automatically — they queue up for review on the **Self-heal review** page (button on the project header). Each entry shows a side-by-side command diff with **Accept & apply** (writes the healed command back to the flow) or **Reject** (discards).
+
 Screenshots are stored in Supabase Storage when configured (see `docs/SUPABASE_SETUP.md`); otherwise they fall back to the API server's local disk.
+
+### When a run fails: Re-crawl
+
+If a web run fails because the app's UI has changed (renamed buttons, restructured pages, removed elements), the failure banner exposes a **Re-crawl** button next to **Run Again**. It refreshes the environment's selector registry from the live app, so the next run / regeneration sees current data. Use this when:
+- the heal loop didn't propose a fix (element genuinely removed)
+- you've just deployed UI changes to the env under test
+- multiple flows in the project are failing on the same page
 
 ---
 

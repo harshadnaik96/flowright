@@ -1,6 +1,9 @@
 import type { Page } from "playwright";
 import { extractElements } from "./crawler";
 import { proposeSelectorFix } from "./gemini";
+import { db } from "../db/client";
+import { selectorHealings, flowSteps, flows } from "../db/schema";
+import { and, eq, desc } from "drizzle-orm";
 
 const SELECTOR_ERROR_PATTERNS = [
   /Timeout.*exceeded/i,
@@ -69,4 +72,68 @@ export async function healSelector(args: {
     originalSelector: extractSelectorFromCommand(args.command),
     reasoning: proposal.reasoning,
   };
+}
+
+/**
+ * Compact "stability hints" payload for Gemini prompts: accepted self-heal
+ * proposals from prior runs in the same project. The intent is to bias future
+ * generation toward selectors that have already proven stable, instead of
+ * re-deriving them from a possibly stale registry.
+ *
+ * Scoped to projectId (not environment) because the same app under test may
+ * be reachable via multiple environments — a heal that worked in staging is a
+ * useful signal for prod.
+ */
+export interface StabilityHint {
+  plainEnglish: string;
+  originalSelector: string | null;
+  healedSelector: string | null;
+  healedCommand: string;
+}
+
+export async function getStabilityHints(
+  projectId: string,
+  limit = 30,
+): Promise<StabilityHint[]> {
+  const rows = await db
+    .select({
+      healing: selectorHealings,
+      step: { plainEnglish: flowSteps.plainEnglish },
+    })
+    .from(selectorHealings)
+    .innerJoin(flowSteps, eq(flowSteps.id, selectorHealings.stepId))
+    .innerJoin(flows, eq(flows.id, selectorHealings.flowId))
+    .where(and(eq(selectorHealings.status, "accepted"), eq(flows.projectId, projectId)))
+    .orderBy(desc(selectorHealings.reviewedAt))
+    .limit(limit);
+
+  return rows.map((r) => ({
+    plainEnglish: r.step.plainEnglish,
+    originalSelector: r.healing.originalSelector,
+    healedSelector: r.healing.healedSelector,
+    healedCommand: r.healing.healedCommand,
+  }));
+}
+
+export async function getStabilityHintsForFlow(
+  flowId: string,
+  limit = 30,
+): Promise<StabilityHint[]> {
+  const rows = await db
+    .select({
+      healing: selectorHealings,
+      step: { plainEnglish: flowSteps.plainEnglish },
+    })
+    .from(selectorHealings)
+    .innerJoin(flowSteps, eq(flowSteps.id, selectorHealings.stepId))
+    .where(and(eq(selectorHealings.status, "accepted"), eq(selectorHealings.flowId, flowId)))
+    .orderBy(desc(selectorHealings.reviewedAt))
+    .limit(limit);
+
+  return rows.map((r) => ({
+    plainEnglish: r.step.plainEnglish,
+    originalSelector: r.healing.originalSelector,
+    healedSelector: r.healing.healedSelector,
+    healedCommand: r.healing.healedCommand,
+  }));
 }

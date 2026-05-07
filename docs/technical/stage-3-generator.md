@@ -61,7 +61,7 @@ These are two separate API calls with a human review gate between them.
 
 ## Gemini Model
 
-Model: `gemini-2.0-flash`
+Model: `gemini-3-flash-preview`
 SDK: `@google/genai`
 
 Structured output uses `responseMimeType: "application/json"` + `responseSchema` for generation and regeneration calls. The refine call returns plain text.
@@ -88,6 +88,7 @@ The generate prompt receives:
 - Refined NL test case
 - Selector registry (label + selector + type + page per entry, summarised)
 - Runtime variable conventions
+- **Stability hints** (web only) — accepted self-heal proposals from prior runs in the same project (see below)
 
 Key rules embedded in the prompt:
 - Phone numbers → `Cypress.env('phone_number')` always
@@ -109,6 +110,33 @@ When a tester flags a step with a plain-English correction (e.g. "it's called Se
 - The selector registry
 
 Returns a single corrected step. The rest of the flow is unchanged.
+
+---
+
+## Stability Hints (web only)
+
+Accepted self-heal proposals (see `technical/stage-6-self-heal.md`) feed back into generation as a "STABILITY HINTS" block in the prompt. Format:
+
+```json
+[
+  {
+    "intent": "Click the Sign In button",
+    "preferSelector": "[data-testid=\"signin\"]",
+    "avoidSelector":  "[data-testid=\"submit\"]",
+    "exampleCommand": "cy.get('[data-testid=\"signin\"]').click()"
+  }
+]
+```
+
+Hint scoping by route:
+
+| Route | Scope |
+|-------|-------|
+| `POST /generator/generate` | project — hints from any flow in the project |
+| `POST /generator/regenerate-flow/:flowId` | project |
+| `POST /generator/regenerate-step/:flowId` | flow — tighter signal for a single fix |
+
+Helpers: `getStabilityHints(projectId)` and `getStabilityHintsForFlow(flowId)` in `services/self-heal.ts`. Mobile generation does not use hints.
 
 ---
 

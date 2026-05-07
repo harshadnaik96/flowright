@@ -4,7 +4,7 @@ title: "Current State & Roadmap"
 
 # Flowright — Current State, Challenges & Roadmap
 
-> Last updated: 2026-04-12
+> Last updated: 2026-05-06
 
 ---
 
@@ -41,6 +41,10 @@ Write test case in plain English
 - [x] Per-step screenshots (pass and fail)
 - [x] Cloud screenshot storage via Supabase Storage (with local FS fallback when env vars are absent)
 - [x] Step retry loop (configurable per flow via `flows.maxRetries`, default 2 retries / 3 attempts) with `step:retry` WS event and `attempts` persisted on `stepResults`
+- [x] Runtime self-healing on selector-pattern errors — re-extract live DOM, ask Gemini for replacement, retry. Healed proposals queue for human review (`selector_healings` table) — `flowSteps.command` is never auto-mutated
+- [x] Self-heal review page (`/projects/:id/healings`): tabbed Pending / Accepted / Rejected with side-by-side command diff, accept-and-apply / reject
+- [x] Stability-hint feedback into Gemini generation: accepted healings inform future `generateSteps` / `regenerateStep` calls (project-scoped for new flows, flow-scoped for single-step regeneration)
+- [x] Re-crawl button in run viewer's failure banner — manual escape hatch when the registry has drifted
 
 ### Mobile Pipeline (Maestro)
 - [x] `maestro hierarchy` crawler — multi-screen crawl (taps nav tabs, captures each screen, aggregates)
@@ -66,7 +70,8 @@ Write test case in plain English
 - [x] Inline command edit after a run fails
 
 ### Run Experience
-- [x] Real-time WebSocket progress (`step:started`, `step:retry`, `step:passed`, `step:failed`, `run:completed`)
+- [x] Real-time WebSocket progress (`step:started`, `step:retry`, `step:healed`, `step:passed`, `step:failed`, `run:completed`)
+- [x] Inline `healed` badge on step rows when runtime self-heal recovered the step
 - [x] Race condition fix: step results fetched from DB on `run:completed` (not just from WS stream)
 - [x] Run history (last 8 runs per flow) with one-click Re-run
 - [x] Flow search + status filter on project page
@@ -159,7 +164,12 @@ The current auth subflow generator produces a fixed YAML sequence based on the a
 | 🔴 High | Verify Bio update flow end-to-end | Current focus — validates input field tap strategy with real data |
 | 🟡 Medium | Auth subflow from registry | Login screen elements vary per app — hardcoded template breaks for non-standard login flows |
 | 🟡 Medium | User auth + team model | Can't share with a team without login |
-| 🟡 Medium | Self-healing selectors (web) — Phase C | When a selector fails, re-extract live DOM, ask Gemini for replacement, retry; queue proposal for human review (do not auto-mutate `flowSteps.command`) |
+| 🟡 Medium | Validate self-heal end-to-end on a real flow | Phase C/D shipped without real-world heal data — need to break a known flow deliberately and confirm Gemini's proposals are sensible before relying on the loop |
+| 🟢 Low | Trust-tier auto-accept for self-heal | After N successful uses of a healed selector without rejection, promote to silent apply. Requires accumulating heal history first |
+| 🟢 Low | Per-selector stability score | Track `worked / total` per (env, selector); surface in bulk editor as flakiness signal |
+| 🟢 Low | Diff-aware crawl (DOM hash per page) | Skip unchanged pages on re-crawl. Perf optimization, defer until justified by profile data |
+| ✅ Done | Self-heal (web) — Phase C | Runtime heal + `selector_healings` review queue + accepted-heal hints fed into generation prompts |
+| ✅ Done | Recrawl-on-demand from run viewer — Phase D | Failure banner exposes `Re-crawl` button (web only) |
 | ✅ Done | Step retry (web) — Phase B | Per-flow `maxRetries` (default 2) + 500 ms backoff + `step:retry` WS event |
 | ✅ Done | Cloud screenshot storage — Phase A | Supabase Storage with FS fallback; full URL stored in `stepResults.screenshotPath` |
 | 🟢 Low | Remove debug logging in `parseHierarchyOutput` | Temporary — logs raw Flutter field names to confirm field mapping |
@@ -181,8 +191,7 @@ The current auth subflow generator produces a fixed YAML sequence based on the a
 
 | Feature | Description |
 |---------|-------------|
-| **Self-healing selectors** | When a step fails because an element was renamed, Gemini re-identifies the new element automatically |
-| **AI failure diagnosis** | Instead of "Element not found", get "The Login button was renamed to Sign In" |
+| **AI failure diagnosis** | Instead of "Element not found", get "The Login button was renamed to Sign In" — partially landed via self-heal `reasoning` field; needs surfacing in the run viewer |
 | **Change detection** | Crawler monitors app on a schedule; flags flows that may be affected by UI changes |
 | **Coverage heatmap** | Visual map of which screens/flows have test coverage and which don't |
 | **Natural language reports** | "12 flows ran overnight. 2 failed — the payment flow broke when the OTP screen didn't appear after entering the phone number." |
@@ -208,3 +217,8 @@ The current auth subflow generator produces a fixed YAML sequence based on the a
 | 2026-05-06 | Step retry stored on `flows.maxRetries` (per-flow, not per-step) | Simpler config for POC; per-step granularity can be added later if needed. 500 ms backoff between attempts; `attempts` count persisted on `stepResults` for run-history visibility |
 | 2026-05-06 | Self-heal scoped to web only; mobile relies on Maestro's native retry/heuristics | Web selectors are uniquely fragile (CSS class churn, DOM restructuring). Maestro's text/point matching is more resilient and doesn't benefit from the same heal loop |
 | 2026-05-06 | Hybrid auto-accept for self-heal (heal at runtime, queue for human review) | Silent semantic mistakes are the worst-case for a test tool. Future trust-tier auto-accept after N successful uses of a healed selector |
+| 2026-05-06 | Heal at most once per step | A step that fails twice with different errors after a heal is signal for human review, not a second AI guess |
+| 2026-05-06 | Drop heals that didn't recover the step (don't queue them for review) | A failed proposal is noise — reviewers should only see proven-good fixes. Keeps the review queue high-signal |
+| 2026-05-06 | Stability hints scoped to project, not environment | A heal that worked in staging is a useful signal for prod (same app under test). Environment-only scoping discards most of the signal |
+| 2026-05-06 | Live DOM extraction for heal (not cached registry) | The registry is what we already had when the step was generated; if it was correct the step would have passed. Live snapshot is the only ground truth |
+| 2026-05-06 | Diff-aware crawl deferred | Pure perf optimization, not correctness. Defer until profile data justifies it |
