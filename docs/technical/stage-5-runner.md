@@ -104,7 +104,12 @@ startRun(runId):
           - on first failure only (web): if isSelectorPatternError(err)
               → re-extract live DOM, ask Gemini for a replacement command
               → if proposal → swap activeCommand, broadcast step:healed
-          - on failure (and attempt < max) → broadcast step:retry, sleep 500ms
+          - classify error via isTransientError():
+              · transient (timeout, navigation, "not visible/attached", net::ERR, target closed) → retry
+              · deterministic (assertion mismatch, strict-mode violation) → break immediately
+              · exception: if a heal proposal was just applied this iteration, give it one shot regardless
+          - on failure (and attempt < max) → broadcast step:retry, sleep backoffMs(attempt)
+              · backoff is exponential with jitter: 500ms → 1s → 2s → 4s → 8s cap, plus 0–250ms jitter
           - if final attempt healed AND step passed → insert selector_healings row (status=pending)
      c. page.screenshot() → uploadScreenshot(runId, "step-N.png", buffer)
           (Supabase if configured, else /tmp/flowright-runs/{runId}/step-N.png)
@@ -161,7 +166,7 @@ When an auth subflow is configured, the Maestro auth preamble emits its own ✅/
 
 ### Direct server-side mobile runner
 
-`startMobileRun(runId)` in `runner-maestro.ts` is an alternative path for running Maestro directly on the API server (when Maestro is installed server-side). It uses the same Maestro YAML format but does **not** inject screenshots. This path is not used in the normal agent-based flow.
+`startMobileRun(runId)` in `runner-maestro.ts` is an alternative path for running Maestro directly on the API server (when Maestro is installed server-side). It uses the same Maestro YAML format and **does inject `takeScreenshot` after every user step**, mirroring the agent path. Each step result is buffered until the following `takeScreenshot` result line arrives, at which point the PNG is uploaded via `uploadScreenshot()` and the step row is committed. If Maestro halts on a failed step before its screenshot runs, the step is committed without a screenshot when the process closes.
 
 ---
 
@@ -226,16 +231,23 @@ Multiple clients can connect to the same `runId` simultaneously. The server fans
 
 ## Screenshots
 
-Storage is handled by `apps/api/src/services/storage.ts → uploadScreenshot()`:
+Storage is handled by `apps/api/src/services/storage.ts`. Two functions, uniform contract:
 
-- **Cloud (default when configured)**: uploaded to Supabase Storage bucket `SUPABASE_BUCKET` (default `flowright-runs`) at object path `{runId}/step-{order}.png`. `stepResults.screenshotPath` stores the **full public URL**. See `docs/SUPABASE_SETUP.md` for setup.
-- **Local fallback (no Supabase env vars)**: written to `{SCREENSHOT_DIR}/{runId}/step-{order}.png` (default `/tmp/flowright-runs`). `stepResults.screenshotPath` stores the relative path `"{runId}/step-{order}.png"`, served by `GET /runner/screenshots/{runId}/{filename}`.
+- `uploadScreenshot(runId, filename, buffer)` — persists the PNG and returns the **relative object path** `"{runId}/{filename}"`, which is what's stored in `stepResults.screenshotPath`. The same shape regardless of backend.
+- `resolveScreenshot(runId, filename)` — returns either `{ kind: "redirect", url }` (Supabase signed URL, default 1h TTL via `SUPABASE_SIGNED_URL_TTL`) or `{ kind: "buffer", data }` (local FS).
 
-The frontend helper (`api.runner.screenshotUrl`) detects which form by checking for `http(s)://` and either passes the URL through or prefixes the legacy serving route. Legacy rows from before Phase A continue to work via the FS path.
+Backends:
 
-**Web**: screenshots captured by Playwright after every step (pass or fail).
+- **Cloud (default when configured)**: uploaded to Supabase Storage bucket `SUPABASE_BUCKET` (default `flowright-runs`) at object path `{runId}/step-{order}.png`. The bucket stays **private** — `GET /runner/screenshots/{runId}/{filename}` 302-redirects to a freshly minted signed URL with `Cache-Control: no-store` so an expired signed URL never gets cached. See `docs/SUPABASE_SETUP.md` for setup.
+- **Local fallback (no Supabase env vars)**: written to `{SCREENSHOT_DIR}/{runId}/step-{order}.png` (default `/tmp/flowright-runs`). `GET /runner/screenshots/{runId}/{filename}` streams the file directly with `image/png`.
 
-**Mobile**: screenshots captured by Maestro's `takeScreenshot` command, but only sent to the server and stored for **failed** steps. The agent reads the file synchronously (blocking) after seeing the screenshot result line in Maestro stdout, then base64-encodes it and sends it with the `step:failed` event. Screenshot failure is non-fatal — if the file is not readable, the step result is still recorded.
+The frontend helper (`api.runner.screenshotUrl`) always builds a `/runner/screenshots/...` URL and lets the API handle the dispatch — no client-side knowledge of which backend is active.
+
+**Web (`runner.ts`)**: screenshots captured by Playwright after every step (pass or fail) via `page.screenshot()` → `uploadScreenshot()`.
+
+**Mobile, server-side (`runner-maestro.ts`)**: `takeScreenshot` injected after every user step in the YAML; each step result is buffered until the screenshot line arrives, at which point the PNG is uploaded.
+
+**Mobile, agent path (`agent-registry.ts` ← `apps/agent/src/run-job.ts`)**: agent runs Maestro locally, base64-encodes failed-step screenshots, and streams them to the API via WebSocket. The API then calls `uploadScreenshot()` so the persistence path is identical to the other two runners. Screenshot failure is non-fatal — if the file is not readable, the step result is still recorded.
 
 ---
 
@@ -244,9 +256,10 @@ The frontend helper (`api.runner.screenshotUrl`) detects which form by checking 
 | Var | Description |
 |-----|-------------|
 | `SCREENSHOT_DIR` | Local fallback dir for screenshots when Supabase is not configured (default: `/tmp/flowright-runs`) |
-| `SUPABASE_URL` | Supabase project URL — enables cloud storage |
+| `SUPABASE_URL` | Supabase project URL — enables cloud storage. Bare URL only, no `/rest/v1/` suffix |
 | `SUPABASE_SERVICE_ROLE_KEY` | Supabase service-role key (server-side only — bypasses RLS for uploads) |
-| `SUPABASE_BUCKET` | Bucket name (default: `flowright-runs`) |
+| `SUPABASE_BUCKET` | Bucket name (default: `flowright-runs`) — keep the bucket private |
+| `SUPABASE_SIGNED_URL_TTL` | Signed URL lifetime in seconds (default: `3600`) |
 
 ---
 
