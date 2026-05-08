@@ -1,7 +1,5 @@
 import type { WebSocket } from "@fastify/websocket";
 import { createHash } from "crypto";
-import { writeFile, mkdir } from "fs/promises";
-import { join } from "path";
 import { db } from "../db/client";
 import { agentTokens } from "../db/schema";
 import { eq } from "drizzle-orm";
@@ -9,8 +7,7 @@ import { broadcast } from "./ws-broadcast";
 import { db as _db } from "../db/client";
 import { testRuns, stepResults, flowSteps } from "../db/schema";
 import type { RunStatus } from "@flowright/shared";
-
-const RUNS_BASE = process.env.SCREENSHOT_DIR ?? "/tmp/flowright-runs";
+import { uploadScreenshot } from "./storage";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -148,15 +145,13 @@ async function handleAgentMessage(raw: string): Promise<void> {
     const step = steps.find((s) => s.order === stepOrder);
     if (!step) return;
 
-    // Save screenshot to disk if the agent sent one (only for failed steps)
+    // Persist the screenshot via storage.ts — Supabase if configured, local FS
+    // fallback otherwise. Only failed steps include screenshot data.
     let screenshotPath: string | null = null;
     if (screenshotData) {
       try {
-        const runDir = join(RUNS_BASE, runId);
-        await mkdir(runDir, { recursive: true });
         const filename = `step-${stepOrder}.png`;
-        await writeFile(join(runDir, filename), Buffer.from(screenshotData, "base64"));
-        screenshotPath = `${runId}/${filename}`;
+        screenshotPath = await uploadScreenshot(runId, filename, Buffer.from(screenshotData, "base64"));
       } catch (err) {
         console.error("[agent-registry] Failed to save screenshot:", err);
       }

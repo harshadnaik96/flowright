@@ -17,12 +17,14 @@
     "@flowright/shared": "workspace:*",
     "@google/genai": "^0.7.0",
     "@supabase/supabase-js": "^2.105.3",
+    "@types/ws": "^8.5.13",
     "dotenv": "^16.4.7",
     "drizzle-orm": "^0.38.3",
     "fastify": "^5.2.1",
     "pg": "^8.13.1",
     "playwright": "^1.49.1",
-    "uuid": "^11.0.3"
+    "uuid": "^11.0.3",
+    "ws": "^8.18.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

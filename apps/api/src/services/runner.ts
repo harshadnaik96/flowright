@@ -4,20 +4,11 @@ import { testRuns, stepResults, flows, flowSteps, environments, selectorHealings
 import { eq } from "drizzle-orm";
 import { decryptAuth } from "./encryption";
 import type { EnvironmentAuth, RunStatus } from "@flowright/shared";
-import { readFile } from "fs/promises";
-import { join } from "path";
 import { addRunListener, broadcast } from "./ws-broadcast";
 import { uploadScreenshot } from "./storage";
 import { healSelector, type HealAttempt } from "./self-heal";
 
 export { addRunListener };
-
-const SCREENSHOTS_BASE = process.env.SCREENSHOT_DIR ?? "/tmp/flowright-runs";
-
-export async function readScreenshot(runId: string, filename: string): Promise<Buffer> {
-  if (!/^step-\d+\.png$/.test(filename)) throw new Error("Invalid screenshot filename");
-  return readFile(join(SCREENSHOTS_BASE, runId, filename));
-}
 
 // ─── Human-readable error translation ─────────────────────────────────────────
 // Converts raw Playwright timeout messages into plain-English failure reasons.
@@ -80,6 +71,42 @@ function humanizeError(raw: string): string {
   }
 
   return raw; // fallback: return as-is
+}
+
+// ─── Retry classification ─────────────────────────────────────────────────────
+// Only retry transient failures (timing, navigation, network). Deterministic
+// failures like assertion mismatches won't change on a re-run — retrying them
+// just multiplies the run duration with no chance of recovery.
+
+function isTransientError(raw: string): boolean {
+  const clean = stripAnsi(raw);
+
+  // Deterministic — do NOT retry. Re-running won't change the answer.
+  if (clean.includes("Expected text to contain")) return false;
+  if (clean.includes("Expected value")) return false;
+  if (clean.includes("Expected URL")) return false;
+  if (clean.includes("Expected element to be enabled")) return false;
+  if (clean.includes("Expected element to be disabled")) return false;
+  if (clean.includes("strict mode violation")) return false;
+
+  // Transient — worth retrying.
+  if (clean.includes("Timeout") && clean.includes("exceeded")) return true;
+  if (clean.includes("waitForURL")) return true;
+  if (clean.includes("Page did not navigate")) return true;
+  if (/net::ERR_/i.test(clean)) return true;
+  if (clean.includes("Target closed") || clean.includes("Target page, context or browser has been closed")) return true;
+  if (clean.includes("Execution context was destroyed")) return true;
+  if (/element is not (visible|attached|stable|enabled)/i.test(clean)) return true;
+
+  // Unknown — default to retrying once. Conservative: better to spend an extra
+  // attempt than to fail on a flake we didn't classify.
+  return true;
+}
+
+function backoffMs(attempt: number): number {
+  // Exponential with jitter: 500, 1000, 2000, 4000, 8000 (capped) + 0–250ms
+  const base = Math.min(8000, 500 * Math.pow(2, attempt - 1));
+  return base + Math.floor(Math.random() * 250);
 }
 
 // ─── Cypress → Playwright command executor ────────────────────────────────────
@@ -552,6 +579,7 @@ export async function startRun(runId: string): Promise<void> {
           const raw = err instanceof Error ? err.message : String(err);
           errorMessage = humanizeError(raw);
           status = "failed";
+          const transient = isTransientError(raw);
 
           // Try a single heal pass on the first failure of the original command.
           // Web runner only — mobile uses Maestro's native matching.
@@ -600,7 +628,16 @@ export async function startRun(runId: string): Promise<void> {
             }
           }
 
+          // If a heal proposal came in this iteration, always give it one shot
+          // — the new command may succeed even if the original error was
+          // deterministic. Otherwise, abort retries on non-transient errors:
+          // re-running an assertion mismatch wastes time without any chance
+          // of recovery.
+          const healJustApplied = healPending !== null && activeCommand === healPending.healedCommand;
+          if (!transient && !healJustApplied) break;
+
           if (attempt < maxAttempts) {
+            const delay = backoffMs(attempt);
             broadcast(runId, {
               type: "step:retry",
               runId,
@@ -612,7 +649,7 @@ export async function startRun(runId: string): Promise<void> {
                 errorMessage,
               },
             });
-            await new Promise((r) => setTimeout(r, 500));
+            await new Promise((r) => setTimeout(r, delay));
           }
         }
       }

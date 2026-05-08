@@ -2,7 +2,8 @@ import type { FastifyInstance } from "fastify";
 import { db } from "../db/client";
 import { testRuns, stepResults, flows, environments, projects, flowSteps } from "../db/schema";
 import { eq, desc } from "drizzle-orm";
-import { startRun, readScreenshot } from "../services/runner";
+import { startRun } from "../services/runner";
+import { resolveScreenshot } from "../services/storage";
 import { addRunListener } from "../services/ws-broadcast";
 import { agentRegistry } from "../services/agent-registry";
 import { decryptAuth } from "../services/encryption";
@@ -152,8 +153,16 @@ export async function runnerRoutes(app: FastifyInstance) {
     "/screenshots/:runId/:filename",
     async (req, reply) => {
       try {
-        const data = await readScreenshot(req.params.runId, req.params.filename);
-        return reply.type("image/png").send(data);
+        const resolved = await resolveScreenshot(req.params.runId, req.params.filename);
+        if (resolved.kind === "redirect") {
+          // 302 to the signed URL — short-lived, browser fetches directly from
+          // Supabase. Caching is intentionally suppressed: the signed URL itself
+          // expires, so any cached redirect would produce broken images later.
+          return reply
+            .header("Cache-Control", "no-store")
+            .redirect(resolved.url, 302);
+        }
+        return reply.type("image/png").send(resolved.data);
       } catch (err) {
         const msg = err instanceof Error ? err.message : "Not found";
         return reply.status(404).send({ error: msg });

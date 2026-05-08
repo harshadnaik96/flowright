@@ -1,5 +1,5 @@
 import { spawn } from "child_process";
-import { writeFile, mkdir, unlink } from "fs/promises";
+import { writeFile, mkdir, unlink, readFile } from "fs/promises";
 import { join } from "path";
 import { db } from "../db/client";
 import { testRuns, stepResults, flowSteps, environments } from "../db/schema";
@@ -7,6 +7,7 @@ import { eq } from "drizzle-orm";
 import { decryptAuth } from "./encryption";
 import { buildAuthSubflowPreamble } from "./auth-subflow";
 import { broadcast } from "./ws-broadcast";
+import { uploadScreenshot } from "./storage";
 import type { EnvironmentAuth, RunStatus } from "@flowright/shared";
 
 const RUNS_BASE = process.env.SCREENSHOT_DIR ?? "/tmp/flowright-runs";
@@ -43,7 +44,8 @@ export function buildFlowYamlForAgent(
 function buildFlowYaml(
   appId: string,
   stepCommands: string[],
-  authSubflowPath: string | null | undefined
+  authSubflowPath: string | null | undefined,
+  screenshotDir: string,
 ): string {
   const lines: string[] = [`appId: "${appId}"`, `---`];
 
@@ -51,8 +53,11 @@ function buildFlowYaml(
     lines.push(buildAuthSubflowPreamble(authSubflowPath).trimEnd());
   }
 
-  for (const cmd of stepCommands) {
-    lines.push(cmd.trimEnd());
+  for (let i = 0; i < stepCommands.length; i++) {
+    lines.push(stepCommands[i].trimEnd());
+    // Capture the post-step screen — uploaded to Supabase (or FS fallback)
+    // after we observe Maestro's takeScreenshot result line.
+    lines.push(`- takeScreenshot: ${screenshotDir}/step-${i + 1}.png`);
   }
 
   return lines.join("\n") + "\n";
@@ -110,7 +115,7 @@ export async function startMobileRun(runId: string): Promise<void> {
     await mkdir(runDir, { recursive: true });
 
     tempYamlPath = join(runDir, "flow.yaml");
-    const yaml = buildFlowYaml(appId, steps.map((s) => s.command), env.authSubflowPath);
+    const yaml = buildFlowYaml(appId, steps.map((s) => s.command), env.authSubflowPath, runDir);
     await writeFile(tempYamlPath, yaml, "utf-8");
 
     // 5. Build --env args: auth secrets + runtime variables
@@ -159,6 +164,56 @@ export async function startMobileRun(runId: string): Promise<void> {
     let stepIndex = 0; // index into our steps[] array
     let overallStatus: RunStatus = "passed";
 
+    // Buffer the most recent user-step result until the following takeScreenshot
+    // result arrives — at that point the .png exists on disk and we can upload
+    // it. Mirrors the pattern in apps/agent/src/run-job.ts.
+    type PendingStep = {
+      step: typeof steps[number];
+      status: "passed" | "failed";
+      errorMessage: string | undefined;
+      screenshotFile: string;
+    };
+    let pending: PendingStep | null = null;
+
+    const commitPending = async (uploadScreenshotFile: boolean): Promise<void> => {
+      if (!pending) return;
+      const { step, status, errorMessage, screenshotFile } = pending;
+      pending = null;
+
+      let screenshotPath: string | null = null;
+      if (uploadScreenshotFile) {
+        try {
+          const buf = await readFile(screenshotFile);
+          screenshotPath = await uploadScreenshot(runId, `step-${step.order}.png`, buf);
+        } catch {
+          // Screenshot file missing or unreadable — proceed without one.
+        }
+      }
+
+      await db.insert(stepResults).values({
+        runId,
+        stepId: step.id,
+        order: step.order,
+        plainEnglish: step.plainEnglish,
+        status,
+        screenshotPath,
+        errorMessage: errorMessage ?? null,
+        warningMessage: null,
+        durationMs: null,
+      });
+
+      broadcast(runId, {
+        type: status === "passed" ? "step:passed" : "step:failed",
+        runId,
+        payload: {
+          stepOrder: step.order,
+          plainEnglish: step.plainEnglish,
+          screenshotPath: screenshotPath ?? undefined,
+          errorMessage,
+        },
+      });
+    };
+
     const processLine = async (line: string) => {
       const isPass = PASS_RE.test(line);
       const isFail = FAIL_RE.test(line);
@@ -179,43 +234,33 @@ export async function startMobileRun(runId: string): Promise<void> {
         return;
       }
 
+      // If a step is pending, this line is its takeScreenshot result.
+      // Commit the step (uploading the screenshot if takeScreenshot succeeded).
+      if (pending) {
+        await commitPending(isPass);
+        return;
+      }
+
       if (stepIndex >= steps.length) return; // extra lines beyond our steps
       const step = steps[stepIndex];
       stepIndex++;
 
-      // Emit step:started immediately before result (Maestro is synchronous)
       broadcast(runId, {
         type: "step:started",
         runId,
         payload: { stepOrder: step.order, plainEnglish: step.plainEnglish },
       });
 
-      const status = isPass ? "passed" : "failed";
+      const status: "passed" | "failed" = isPass ? "passed" : "failed";
       const errorMessage = isFail ? extractMaestroError(line) : undefined;
-
       if (isFail) overallStatus = "failed";
 
-      await db.insert(stepResults).values({
-        runId,
-        stepId: step.id,
-        order: step.order,
-        plainEnglish: step.plainEnglish,
+      pending = {
+        step,
         status,
-        screenshotPath: null,   // Maestro screenshots stored separately; not yet wired
-        errorMessage: errorMessage ?? null,
-        warningMessage: null,
-        durationMs: null,
-      });
-
-      broadcast(runId, {
-        type: status === "passed" ? "step:passed" : "step:failed",
-        runId,
-        payload: {
-          stepOrder: step.order,
-          plainEnglish: step.plainEnglish,
-          errorMessage,
-        },
-      });
+        errorMessage,
+        screenshotFile: join(runDir, `step-${step.order}.png`),
+      };
     };
 
     // Accumulate stdout, process complete lines
@@ -240,6 +285,10 @@ export async function startMobileRun(runId: string): Promise<void> {
           await processLine(buffer).catch(() => {});
           buffer = "";
         }
+
+        // If a step is still pending (Maestro halted on failure before its
+        // takeScreenshot ran), commit it without a screenshot.
+        if (pending) await commitPending(false).catch(() => {});
 
         // Mark any steps we never received results for as skipped
         for (let i = stepIndex; i < steps.length; i++) {

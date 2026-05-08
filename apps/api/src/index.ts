@@ -12,6 +12,7 @@ import { agentTokenRoutes } from "./routes/agent-tokens";
 import { downloadsRoutes } from "./routes/downloads";
 import { healingRoutes } from "./routes/healings";
 import { agentRegistry } from "./services/agent-registry";
+import { isCloudStorageEnabled } from "./services/storage";
 
 const app = Fastify({ logger: true });
 
@@ -66,6 +67,14 @@ async function bootstrap() {
 
   await app.listen({ port, host });
   app.log.info(`Flowright API running on http://${host}:${port}`);
+  if (isCloudStorageEnabled()) {
+    app.log.info(`Screenshot storage: Supabase bucket "${process.env.SUPABASE_BUCKET ?? "flowright-runs"}"`);
+  } else {
+    app.log.warn(
+      `Screenshot storage: local filesystem (${process.env.SCREENSHOT_DIR ?? "/tmp/flowright-runs"}). ` +
+      `Set SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY to persist screenshots across restarts.`,
+    );
+  }
 }
 
 bootstrap().catch((err) => {
