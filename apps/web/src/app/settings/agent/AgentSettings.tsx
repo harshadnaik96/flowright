@@ -208,7 +208,7 @@ export function AgentSettings({ initialTokens }: Props) {
         {creating && (
           <div className="mt-3 flex items-center gap-2">
             <div className="flex-1 space-y-1">
-              <Label htmlFor="token-name" className="text-xs">Token name (e.g. "Harshad&apos;s MacBook")</Label>
+              <Label htmlFor="token-name" className="text-xs">Token name (e.g. &quot;Harshad&apos;s MacBook&quot;)</Label>
               <Input
                 id="token-name"
                 value={newName}
