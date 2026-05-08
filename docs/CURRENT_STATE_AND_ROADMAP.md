@@ -82,7 +82,7 @@ Write test case in plain English
 
 ## Where We Are Now
 
-The mobile pipeline is functional end-to-end on a real Flutter app (`com.corpusvision.bakbak.dev`):
+The mobile pipeline is functional end-to-end on a real Flutter app:
 
 - Crawl discovers elements across Home and all nav-reachable screens
 - Gemini generates correct Maestro YAML using real element text from the registry

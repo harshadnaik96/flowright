@@ -200,6 +200,21 @@ export interface MobileCrawlResult {
   crawledAt: string;
 }
 
+// Capture a single screen that the user has manually navigated to on the device.
+// No app launch, no navigation — just `maestro hierarchy` against the current foreground screen.
+export async function crawlSingleScreen(screenName: string): Promise<MobileCrawlResult> {
+  const trimmed = screenName.trim();
+  if (!trimmed) throw new Error("screenName is required");
+
+  const entries = await captureScreen(trimmed);
+  console.info(`[crawler-maestro] Single-screen "${trimmed}": ${entries.length} elements`);
+
+  return {
+    entries,
+    crawledAt: new Date().toISOString(),
+  };
+}
+
 export async function crawlMobileApp(appId: string): Promise<MobileCrawlResult> {
   // No auto-launch: the app must already be open on the device before crawling.
   // waitForAnimationToEnd can block indefinitely on apps with persistent loaders,

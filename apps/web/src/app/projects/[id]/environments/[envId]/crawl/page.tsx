@@ -2,12 +2,14 @@
 
 import { use, useState, useEffect } from "react"
 import Link from "next/link"
-import { ArrowLeft, RefreshCw, Loader2, CheckCircle2, Database } from "lucide-react"
+import { ArrowLeft, RefreshCw, Loader2, CheckCircle2, Database, Smartphone } from "lucide-react"
 import { AppShell } from "@/components/layout/AppShell"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import { api } from "@/lib/api"
 import type { Environment, SelectorRegistry, MobileSelectorEntry } from "@flowright/shared"
 
@@ -24,6 +26,11 @@ export default function CrawlPage({
   const [isCrawling, setIsCrawling] = useState(false)
   const [crawlResult, setCrawlResult] = useState<{ entriesFound: number; crawledAt: string } | null>(null)
   const [error, setError] = useState<string | null>(null)
+
+  const [screenName, setScreenName] = useState("")
+  const [isCrawlingScreen, setIsCrawlingScreen] = useState(false)
+  const [screenResult, setScreenResult] = useState<{ screen: string; entriesFound: number } | null>(null)
+  const [screenError, setScreenError] = useState<string | null>(null)
 
   useEffect(() => {
     Promise.all([
@@ -56,6 +63,26 @@ export default function CrawlPage({
       setError(err instanceof Error ? err.message : "Crawl failed")
     } finally {
       setIsCrawling(false)
+    }
+  }
+
+  const handleCrawlScreen = async () => {
+    const trimmed = screenName.trim()
+    if (!trimmed) return
+    setIsCrawlingScreen(true)
+    setScreenError(null)
+    setScreenResult(null)
+
+    try {
+      const result = await api.crawler.crawlScreen(envId, trimmed)
+      setScreenResult({ screen: trimmed, entriesFound: result.entriesFound })
+      const updated = await api.crawler.registry(envId)
+      setRegistry(updated)
+      setScreenName("")
+    } catch (err) {
+      setScreenError(err instanceof Error ? err.message : "Single-screen crawl failed")
+    } finally {
+      setIsCrawlingScreen(false)
     }
   }
 
@@ -130,6 +157,63 @@ export default function CrawlPage({
             )}
           </Button>
         </div>
+
+        {/* Deep-screen crawl (mobile only) */}
+        {isMobile && (
+          <>
+            <Separator />
+            <div className="space-y-4">
+              <div className="flex items-start gap-3">
+                <Smartphone className="h-4 w-4 mt-0.5 text-muted-foreground shrink-0" />
+                <div className="space-y-1">
+                  <p className="text-sm font-medium">Crawl a specific screen</p>
+                  <p className="text-sm text-muted-foreground">
+                    Manually navigate to any screen on the connected device (e.g. Edit Profile, Transaction Detail),
+                    name it below, then capture. New elements are merged into the existing registry — entries
+                    previously tagged with the same screen name are replaced.
+                  </p>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="screen-name" className="text-xs">Screen name</Label>
+                <div className="flex gap-2">
+                  <Input
+                    id="screen-name"
+                    placeholder="e.g. Edit Profile"
+                    value={screenName}
+                    onChange={(e) => setScreenName(e.target.value)}
+                    disabled={isCrawlingScreen}
+                    onKeyDown={(e) => { if (e.key === "Enter") handleCrawlScreen() }}
+                    aria-label="Screen name"
+                  />
+                  <Button
+                    onClick={handleCrawlScreen}
+                    disabled={isCrawlingScreen || !screenName.trim() || !env}
+                    variant="secondary"
+                  >
+                    {isCrawlingScreen ? (
+                      <><Loader2 className="h-4 w-4 animate-spin" /> Capturing…</>
+                    ) : (
+                      <>Capture screen</>
+                    )}
+                  </Button>
+                </div>
+              </div>
+
+              {screenError && (
+                <p className="text-sm text-destructive bg-destructive/10 rounded-md px-3 py-2">{screenError}</p>
+              )}
+
+              {screenResult && (
+                <div className="flex items-center gap-2 text-sm text-green-600 bg-green-500/10 rounded-md px-3 py-2">
+                  <CheckCircle2 className="h-4 w-4 shrink-0" />
+                  Captured “{screenResult.screen}” — {screenResult.entriesFound} elements merged into registry
+                </div>
+              )}
+            </div>
+          </>
+        )}
 
         {/* Registry preview */}
         {registry && registry.entries.length > 0 && (

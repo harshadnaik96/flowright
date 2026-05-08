@@ -5,6 +5,7 @@ import {
   CheckCircle2, XCircle, Loader2, Circle, AlertTriangle,
   Play, Pencil, Check, X, ChevronDown, ChevronRight,
   Terminal, Clock, SkipForward, RefreshCw, GitMerge,
+  Camera, Smartphone,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -141,6 +142,98 @@ function LiveTerminal({ command }: { command: string }) {
 
 // ─── Accordion step row ───────────────────────────────────────────────────────
 
+// ─── Capture-screen inline form ──────────────────────────────────────────────
+// Used in two surfaces: failed-step body (when a `tapOn point` is detected) and
+// the failure banner. Tester names the screen they're currently on, hits capture,
+// and the deep-screen-crawl endpoint merges new elements into the registry.
+
+function CaptureScreenInline({
+  envId,
+  defaultName,
+  variant = "full",
+}: {
+  envId: string;
+  defaultName?: string;
+  variant?: "full" | "compact";
+}) {
+  const [open, setOpen] = useState(variant === "full");
+  const [name, setName] = useState(defaultName ?? "");
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState<{ count: number } | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  const submit = async () => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    setBusy(true); setErr(null); setDone(null);
+    try {
+      const res = await api.crawler.crawlScreen(envId, trimmed);
+      setDone({ count: res.entriesFound });
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Capture failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (variant === "compact" && !open) {
+    return (
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={() => setOpen(true)}
+        aria-label="Capture current screen"
+        title="Capture the screen currently visible on the device — adds its elements to the registry for better step generation"
+      >
+        <Camera className="h-4 w-4 mr-1.5" />
+        Capture screen
+      </Button>
+    );
+  }
+
+  return (
+    <div className="space-y-1.5">
+      <div className="flex gap-1.5">
+        <Input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="Screen name (e.g. Edit Profile)"
+          disabled={busy}
+          onKeyDown={(e) => { if (e.key === "Enter") submit(); }}
+          aria-label="Screen name"
+          className="h-8 text-xs"
+        />
+        <Button
+          size="sm"
+          variant="secondary"
+          onClick={submit}
+          disabled={busy || !name.trim()}
+        >
+          {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Camera className="h-3.5 w-3.5" />}
+          {busy ? "Capturing…" : "Capture"}
+        </Button>
+        {variant === "compact" && (
+          <Button size="sm" variant="ghost" onClick={() => setOpen(false)} aria-label="Cancel">
+            <X className="h-3.5 w-3.5" />
+          </Button>
+        )}
+      </div>
+      {done && (
+        <p className="text-xs text-green-600 flex items-center gap-1">
+          <CheckCircle2 className="h-3 w-3" /> Captured — {done.count} elements merged. Re-generate the step or re-run to use them.
+        </p>
+      )}
+      {err && <p className="text-xs text-destructive">{err}</p>}
+    </div>
+  );
+}
+
+// Detect Maestro `point:` taps — those are coordinate guesses Gemini emits when
+// the target element wasn't in the registry. A captured screen replaces the guess.
+function commandUsesPointGuess(command: string): boolean {
+  return /point\s*:/i.test(command);
+}
+
 function AccordionStepRow({
   step,
   isOpen,
@@ -148,6 +241,8 @@ function AccordionStepRow({
   showActions,
   flowId,
   onCommandSaved,
+  envId,
+  isMobile,
 }: {
   step: StepLiveState;
   isOpen: boolean;
@@ -155,6 +250,8 @@ function AccordionStepRow({
   showActions: boolean;
   flowId: string;
   onCommandSaved: (stepId: string, newCommand: string) => void;
+  envId?: string;
+  isMobile: boolean;
 }) {
   const [imgExpanded, setImgExpanded]   = useState(false);
   const [editing, setEditing]           = useState(false);
@@ -315,6 +412,21 @@ function AccordionStepRow({
                   </div>
                 ))}
               </div>
+            </div>
+          )}
+
+          {/* Point-guess hint (mobile only) — Gemini fell back to coordinates,
+              capturing this screen replaces the guess with real bounds. */}
+          {isMobile && envId && (step.status === "passed" || step.status === "failed") && commandUsesPointGuess(step.command) && (
+            <div className="rounded-md border border-amber-300/50 dark:border-amber-700/50 bg-amber-50 dark:bg-amber-950/30 px-2.5 py-2 space-y-2">
+              <div className="flex items-start gap-1.5 text-xs text-amber-800 dark:text-amber-300">
+                <Smartphone className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                <span>
+                  This step taps by point coordinates — the AI guessed the position because the element wasn&apos;t in the registry.
+                  Open this screen on the device and capture it for accurate taps.
+                </span>
+              </div>
+              <CaptureScreenInline envId={envId} />
             </div>
           )}
 
@@ -862,6 +974,9 @@ export function RunFlow({
                     {recrawlState === "running" ? "Re-crawling…" : "Re-crawl"}
                   </Button>
                 )}
+                {isMobile && envId && overallStatus !== "passed" && (
+                  <CaptureScreenInline envId={envId} variant="compact" />
+                )}
                 <Button variant="outline" size="sm" onClick={handleRunAgain}>
                   Run Again
                 </Button>
@@ -945,6 +1060,8 @@ export function RunFlow({
             showActions={isDone}
             flowId={flowId}
             onCommandSaved={handleCommandSaved}
+            envId={envId}
+            isMobile={isMobile}
           />
         ))}
       </div>

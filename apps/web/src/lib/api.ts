@@ -82,6 +82,11 @@ export const api = {
         method: "POST",
         body: JSON.stringify({ environmentId }),
       }),
+    crawlScreen: (environmentId: string, screenName: string) =>
+      request<CrawlResponse>("/crawler/crawl-screen", {
+        method: "POST",
+        body: JSON.stringify({ environmentId, screenName }),
+      }),
     registry: (environmentId: string) =>
       request<SelectorRegistry>(`/crawler/registry/${environmentId}`),
   },

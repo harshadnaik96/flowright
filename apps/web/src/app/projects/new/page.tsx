@@ -83,7 +83,7 @@ export default function NewProjectPage() {
                   <Label htmlFor="name" className="text-xs font-black uppercase tracking-widest text-slate-400">Project Name</Label>
                   <Input
                     id="name"
-                    placeholder="BakBakAdmin, ShiftPro Staging, etc."
+                    placeholder="Instagram, X etc."
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                     required
